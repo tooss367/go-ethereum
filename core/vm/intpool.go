@@ -17,6 +17,7 @@
 package vm
 
 import (
+	"github.com/holiman/uint256"
 	"math/big"
 	"sync"
 )
@@ -35,27 +36,27 @@ func newIntPool() *intPool {
 	return &intPool{pool: newstack()}
 }
 
-// get retrieves a big int from the pool, allocating one if the pool is empty.
+// get retrieves an int from the pool, allocating one if the pool is empty.
 // Note, the returned int's value is arbitrary and will not be zeroed!
-func (p *intPool) get() *big.Int {
+func (p *intPool) get() *uint256.Int {
 	if p.pool.len() > 0 {
 		return p.pool.pop()
 	}
-	return new(big.Int)
+	return new(uint256.Int)
 }
 
 // getZero retrieves a big int from the pool, setting it to zero or allocating
 // a new one if the pool is empty.
-func (p *intPool) getZero() *big.Int {
+func (p *intPool) getZero() *uint256.Int {
 	if p.pool.len() > 0 {
-		return p.pool.pop().SetUint64(0)
+		return p.pool.pop().Clear()
 	}
-	return new(big.Int)
+	return new(uint256.Int)
 }
 
 // put returns an allocated big int to the pool to be later reused by get calls.
 // Note, the values as saved as is; neither put nor get zeroes the ints out!
-func (p *intPool) put(is ...*big.Int) {
+func (p *intPool) put(is ...*uint256.Int) {
 	if len(p.pool.data) > poolLimit {
 		return
 	}
@@ -63,7 +64,7 @@ func (p *intPool) put(is ...*big.Int) {
 		// verifyPool is a build flag. Pool verification makes sure the integrity
 		// of the integer pool by comparing values to a default value.
 		if verifyPool {
-			i.Set(checkVal)
+			i.SetFromBig(checkVal)
 		}
 		p.pool.push(i)
 	}
