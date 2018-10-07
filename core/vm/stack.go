@@ -75,7 +75,7 @@ func (st *Stack) Back(n int) *big.Int {
 }
 
 func (st *Stack) require(n int) error {
-	if st.len() < n {
+	if len(st.data) < n {
 		return fmt.Errorf("stack underflow (%d <=> %d)", len(st.data), n)
 	}
 	return nil

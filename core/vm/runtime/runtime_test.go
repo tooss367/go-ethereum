@@ -149,6 +149,31 @@ func BenchmarkCall(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkExecutionLoop(b *testing.B){
+	// Testing only the execution loop, we can fill it mainly with JUMPDESTs
+	code := []byte{
+		byte(vm.JUMPDEST), byte(vm.JUMPDEST), byte(vm.JUMPDEST),byte(vm.JUMPDEST),
+		byte(vm.JUMPDEST), byte(vm.JUMPDEST), byte(vm.JUMPDEST),byte(vm.JUMPDEST),
+		byte(vm.JUMPDEST), byte(vm.JUMPDEST), byte(vm.JUMPDEST),byte(vm.JUMPDEST),
+		byte(vm.JUMPDEST), byte(vm.JUMPDEST), byte(vm.JUMPDEST),byte(vm.JUMPDEST),
+		byte(vm.JUMPDEST), byte(vm.JUMPDEST), byte(vm.JUMPDEST),byte(vm.JUMPDEST),
+		byte(vm.JUMPDEST), byte(vm.JUMPDEST), byte(vm.JUMPDEST),byte(vm.JUMPDEST),
+		byte(vm.JUMPDEST), byte(vm.JUMPDEST), byte(vm.JUMPDEST),byte(vm.JUMPDEST),
+		byte(vm.JUMPDEST), byte(vm.JUMPDEST), byte(vm.JUMPDEST),byte(vm.JUMPDEST),
+		byte(vm.JUMPDEST), byte(vm.JUMPDEST), byte(vm.JUMPDEST),byte(vm.JUMPDEST),
+		byte(vm.JUMPDEST), byte(vm.JUMPDEST), byte(vm.JUMPDEST),byte(vm.JUMPDEST),
+		byte(vm.PUSH1), 0, byte(vm.JUMP),
+	}
+	cfg := new(Config)
+	setDefaults(cfg)
+	cfg.GasLimit = 10000000
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+			Execute(code, nil, cfg)
+	}
+}
+
 func benchmarkEVM_Create(bench *testing.B, code string) {
 	var (
 		statedb, _ = state.New(common.Hash{}, state.NewDatabase(ethdb.NewMemDatabase()))

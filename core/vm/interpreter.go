@@ -18,12 +18,9 @@ package vm
 
 import (
 	"fmt"
-	"hash"
-	"sync/atomic"
-
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/params"
+	"sync/atomic"
 )
 
 // Config are the configuration options for the Interpreter
@@ -119,16 +116,14 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 }
 
 func (in *EVMInterpreter) enforceRestrictions(op OpCode, operation operation, stack *Stack) error {
-	if in.evm.chainRules.IsByzantium {
-		if in.readOnly {
-			// If the interpreter is operating in readonly mode, make sure no
-			// state-modifying operation is performed. The 3rd stack item
-			// for a call operation is the value. Transferring value from one
-			// account to the others means the state is modified and should also
-			// return with an error.
-			if operation.writes || (op == CALL && stack.Back(2).BitLen() > 0) {
-				return errWriteProtection
-			}
+	if in.readOnly && in.evm.chainRules.IsByzantium {
+		// If the interpreter is operating in readonly mode, make sure no
+		// state-modifying operation is performed. The 3rd stack item
+		// for a call operation is the value. Transferring value from one
+		// account to the others means the state is modified and should also
+		// return with an error.
+		if operation.writes || (op == CALL && stack.Back(2).BitLen() > 0) {
+			return errWriteProtection
 		}
 	}
 	return nil
@@ -165,7 +160,8 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 	in.returnData = nil
 
 	// Don't bother with the execution if there's no code.
-	if len(contract.Code) == 0 {
+	codeLen := uint64(len(contract.Code))
+	if codeLen == 0 {
 		return nil, nil
 	}
 
@@ -199,6 +195,13 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			}
 		}()
 	}
+	ctx := &executionContext{
+		interpreter:in,
+		contract:contract,
+		memory:mem,
+		pc: &pc,
+		stack: stack,
+	}
 	// The Interpreter main run loop (contextual). This loop runs until either an
 	// explicit STOP, RETURN or SELFDESTRUCT is executed, an error occurred during
 	// the execution of one of the operations or until the done flag is set by the
@@ -211,7 +214,12 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 
 		// Get the operation from the jump table and validate the stack to ensure there are
 		// enough stack items available to perform the operation.
-		op = contract.GetOp(pc)
+		//op = contract.GetOp(pc)
+		if pc < codeLen{
+			op = OpCode(contract.Code[pc])
+		}else{
+			op = OpCode(0x00)
+		}
 		operation := in.cfg.JumpTable[op]
 		if !operation.valid {
 			return nil, fmt.Errorf("invalid opcode 0x%x", int(op))
@@ -220,8 +228,19 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			return nil, err
 		}
 		// If the operation is valid, enforce and write restrictions
-		if err := in.enforceRestrictions(op, operation, stack); err != nil {
-			return nil, err
+		if in.readOnly && in.evm.chainRules.IsByzantium {
+			// If the interpreter is operating in readonly mode, make sure no
+			// state-modifying operation is performed. The 3rd stack item
+			// for a call operation is the value. Transferring value from one
+			// account to the others means the state is modified and should also
+			// return with an error.
+			if operation.writes || (op == CALL && stack.Back(2).BitLen() > 0) {
+				return nil, errWriteProtection
+			}
+		}
+		// Static portion of gas
+		if !contract.UseGas(operation.constGas) {
+			return nil, ErrOutOfGas
 		}
 
 		var memorySize uint64
@@ -240,9 +259,11 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		}
 		// consume the gas and return an error if not enough gas is available.
 		// cost is explicitly set so that the capture state defer method can get the proper cost
-		cost, err = operation.gasCost(in.gasTable, in.evm, contract, stack, mem, memorySize)
-		if err != nil || !contract.UseGas(cost) {
-			return nil, ErrOutOfGas
+		if operation.dynamicGas != nil{
+			cost, err = operation.dynamicGas(in.gasTable, in.evm, contract, stack, mem, memorySize)
+			if err != nil || !contract.UseGas(cost) {
+				return nil, ErrOutOfGas
+			}
 		}
 		if memorySize > 0 {
 			mem.Resize(memorySize)
@@ -254,7 +275,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		}
 
 		// execute the operation
-		res, err := operation.execute(&pc, in, contract, mem, stack)
+		res, err := operation.execute(ctx)
 		// verifyPool is a build flag. Pool verification makes sure the integrity
 		// of the integer pool by comparing values to a default value.
 		if verifyPool {
