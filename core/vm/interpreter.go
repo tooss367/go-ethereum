@@ -196,11 +196,11 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		}()
 	}
 	ctx := &executionContext{
-		interpreter:in,
-		contract:contract,
-		memory:mem,
-		pc: &pc,
-		stack: stack,
+		interpreter: in,
+		contract:    contract,
+		memory:      mem,
+		pc:          &pc,
+		stack:       stack,
 	}
 	// The Interpreter main run loop (contextual). This loop runs until either an
 	// explicit STOP, RETURN or SELFDESTRUCT is executed, an error occurred during
@@ -215,17 +215,20 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		// Get the operation from the jump table and validate the stack to ensure there are
 		// enough stack items available to perform the operation.
 		//op = contract.GetOp(pc)
-		if pc < codeLen{
+		if pc < codeLen {
 			op = OpCode(contract.Code[pc])
-		}else{
+		} else {
 			op = OpCode(0x00)
 		}
 		operation := in.cfg.JumpTable[op]
 		if !operation.valid {
 			return nil, fmt.Errorf("invalid opcode 0x%x", int(op))
 		}
-		if err := operation.validateStack(stack); err != nil {
-			return nil, err
+		// validate stack
+		if stackLenAfterPop := len(stack.data) - operation.npops; stackLenAfterPop < 0 {
+			return nil, fmt.Errorf("stack underflow (%d <=> %d)", stackLenAfterPop+operation.npops, operation.npops)
+		} else if stackLenAfterPop+operation.npushes > int(params.StackLimit) {
+			return nil, fmt.Errorf("stack limit reached %d (%d)", stack.len(), params.StackLimit)
 		}
 		// If the operation is valid, enforce and write restrictions
 		if in.readOnly && in.evm.chainRules.IsByzantium {
@@ -259,7 +262,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		}
 		// consume the gas and return an error if not enough gas is available.
 		// cost is explicitly set so that the capture state defer method can get the proper cost
-		if operation.dynamicGas != nil{
+		if operation.dynamicGas != nil {
 			cost, err = operation.dynamicGas(in.gasTable, in.evm, contract, stack, mem, memorySize)
 			if err != nil || !contract.UseGas(cost) {
 				return nil, ErrOutOfGas
