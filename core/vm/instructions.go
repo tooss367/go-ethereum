@@ -896,21 +896,7 @@ func makeLog(size int) executionFunc {
 		return nil, nil
 	}
 }
-func push1(ctx *executionContext) ([]byte, error){
-	codeLen := uint64(len(ctx.contract.Code))
-	integer := ctx.interpreter.intPool.get()
-	*ctx.pc += 1
-	if *ctx.pc < codeLen{
-		ctx.stack.push(integer.SetUint64(uint64(ctx.contract.Code[*ctx.pc])))
-	}else{
-		// Hack -- but if we're at the end of the code, the execution ends here,
-		// and nobody will know that we pushed the wrong value.
-		ctx.stack.push(integer.SetUint64(0))
-	}
 
-	return nil, nil
-
-}
 // make push instruction function
 func makePush(size uint64, pushByteSize int) executionFunc {
 	return func(ctx *executionContext) ([]byte, error) {

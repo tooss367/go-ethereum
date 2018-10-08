@@ -146,7 +146,6 @@ func newByzantiumInstructionSet() [256]operation {
 		dynamicGas: gasRevert,
 		npops:      2,
 		npushes:    0,
-
 		memorySize: memoryRevert,
 		valid:      true,
 		reverts:    true,
@@ -570,7 +569,7 @@ func newFrontierInstructionSet() [256]operation {
 			npops:    0,
 		},
 		PUSH1: {
-			execute:  push1,
+			execute:  makePush(1, 1),
 			constGas: GasFastestStep,
 			valid:    true,
 			npushes:  1,

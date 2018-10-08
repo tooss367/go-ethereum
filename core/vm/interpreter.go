@@ -276,7 +276,6 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			in.cfg.Tracer.CaptureState(in.evm, pc, op, gasCopy, cost, mem, stack, contract, in.evm.depth, err)
 			logged = true
 		}
-
 		// execute the operation
 		res, err := operation.execute(ctx)
 		// verifyPool is a build flag. Pool verification makes sure the integrity

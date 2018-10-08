@@ -22,37 +22,37 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
-func pop2push1(stack *Stack) error{
+func pop2push1(stack *Stack) error {
 	stackLen := len(stack.data)
-	if stackLen < 2{
+	if stackLen < 2 {
 		return fmt.Errorf("stack underflow (%d <=> %d)", stackLen, 2)
 	}
-	if stackLen > int(params.StackLimit)-1{
+	if stackLen > int(params.StackLimit)-1 {
 		return fmt.Errorf("stack limit reached %d (%d)", stack.len(), params.StackLimit)
 	}
 	return nil
 }
-func pop0push1(stack *Stack) error{
+func pop0push1(stack *Stack) error {
 	stackLen := len(stack.data)
-	if stackLen > int(params.StackLimit)-1{
+	if stackLen > int(params.StackLimit)-1 {
 		return fmt.Errorf("stack limit reached %d (%d)", stack.len(), params.StackLimit)
 	}
 	return nil
 }
-func pop1push0(stack *Stack) error{
+func pop1push0(stack *Stack) error {
 	stackLen := len(stack.data)
-	if stackLen < 1{
+	if stackLen < 1 {
 		return fmt.Errorf("stack underflow (%d <=> %d)", stackLen, 2)
 	}
 	return nil
 }
-func pop0push0(stack *Stack) error{
+func pop0push0(stack *Stack) error {
 	return nil
 }
 func makeStackFunc(pop, push int) stackValidationFunc {
 	return func(stack *Stack) error {
-		stackLen := len(stack.data)-pop
-		if stackLen < 0{
+		stackLen := len(stack.data) - pop
+		if stackLen < 0 {
 			return fmt.Errorf("stack underflow (%d <=> %d)", stackLen+pop, pop)
 		}
 		if stackLen+push > int(params.StackLimit) {
