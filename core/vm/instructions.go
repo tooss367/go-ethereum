@@ -373,8 +373,8 @@ func opSAR(ctx *executionContext) ([]byte, error) {
 func opSha3(ctx *executionContext) ([]byte, error) {
 	offset, size := ctx.stack.pop(), ctx.stack.pop()
 	data := ctx.memory.Get(offset.Int64(), size.Int64())
-	hash := crypto.Keccak256(data)
 	evm := ctx.interpreter.evm
+	interpreter := ctx.interpreter
 
 	if interpreter.hasher == nil {
 		interpreter.hasher = sha3.NewKeccak256().(keccakState)
@@ -384,13 +384,12 @@ func opSha3(ctx *executionContext) ([]byte, error) {
 	interpreter.hasher.Write(data)
 	interpreter.hasher.Read(interpreter.hasherBuf[:])
 
-	evm := interpreter.evm
 	if evm.vmConfig.EnablePreimageRecording {
 		evm.StateDB.AddPreimage(interpreter.hasherBuf, data)
 	}
 	ctx.stack.push(interpreter.intPool.get().SetBytes(interpreter.hasherBuf[:]))
 
-	ctx.interpreter.intPool.put(offset, size)
+	interpreter.intPool.put(offset, size)
 	return nil, nil
 }
 
