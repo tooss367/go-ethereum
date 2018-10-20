@@ -17,8 +17,15 @@
 package core
 
 import (
+	"compress/gzip"
+	"encoding/json"
 	"fmt"
+	"github.com/ethereum/go-ethereum/common"
+	"io"
 	"math/big"
+	"os"
+	"strings"
+	"testing"
 
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -27,6 +34,75 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/params"
 )
+
+func TestGenerateTwoChains(t *testing.T) {
+	var (
+		db = ethdb.NewMemDatabase()
+		chainconfig = &params.ChainConfig{
+			ChainID:             big.NewInt(9898),
+			HomesteadBlock:      big.NewInt(5),
+			DAOForkBlock:        big.NewInt(1920000),
+			DAOForkSupport:      true,
+			EIP150Block:         big.NewInt(10),
+			EIP155Block:         big.NewInt(20),
+			EIP158Block:         big.NewInt(20),
+			ByzantiumBlock:      big.NewInt(30),
+			ConstantinopleBlock: big.NewInt(40),
+			Ethash:              new(params.EthashConfig),
+		})
+
+	gspec := &Genesis{
+		Config: chainconfig,
+		Number: 0,
+		GasLimit:21000,
+		GasUsed:0,
+		Difficulty:big.NewInt(0x20000),
+		Coinbase: common.HexToAddress("0x0000000000000000000000000000000000000000"),
+		ParentHash:common.Hash{},
+		ExtraData: []byte{},
+		Timestamp:0x00,
+		Nonce:0x43,
+		Mixhash:common.Hash{},
+	}
+	genesis := gspec.MustCommit(db)
+	json, err := json.MarshalIndent(gspec, "", "    ")
+	if err != nil {
+		fmt.Println("dump err", err)
+	}
+	fmt.Printf("genesis\n%v\n", string(json))
+	forkpoint := 9999
+	sidelength := 5000
+	mainlength := 13000
+	mainchain, _ := GenerateChain(gspec.Config, genesis, ethash.NewFaker(), db, mainlength, nil)
+	fork, _ := GenerateChain(gspec.Config, mainchain[forkpoint], ethash.NewFaker(), db, sidelength, func(i int, gen *BlockGen) {
+		if i == 0 {
+			gen.SetExtra(common.FromHex("deadcode"))
+		}
+	})
+	fmt.Printf("len main %d\n, len fork %d\n", len(mainchain), len(fork))
+	dumpToFile(mainchain, "main.rlp")
+	dumpToFile(fork, "fork.rlp")
+}
+func dumpToFile(chain []*types.Block, fn string) error {
+	// Open the file handle and potentially wrap with a gzip stream
+	fh, err := os.OpenFile(fn, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.ModePerm)
+	if err != nil {
+		return err
+	}
+	defer fh.Close()
+
+	var writer io.Writer = fh
+	if strings.HasSuffix(fn, ".gz") {
+		writer = gzip.NewWriter(writer)
+		defer writer.(*gzip.Writer).Close()
+	}
+	for _, block := range chain {
+		if err := block.EncodeRLP(writer); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func ExampleGenerateChain() {
 	var (

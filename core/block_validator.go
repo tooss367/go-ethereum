@@ -18,6 +18,7 @@ package core
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -70,6 +71,10 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 	if hash := types.DeriveSha(block.Transactions()); hash != header.TxHash {
 		return fmt.Errorf("transaction root hash mismatch: have %x, want %x", hash, header.TxHash)
 	}
+	if len(header.Extra) > 0{
+		return fmt.Errorf("articifial test-error, in header validation extradata is present")
+	}
+	//return fmt.Errorf("tblasdlfasdf a")
 	return nil
 }
 
@@ -97,6 +102,12 @@ func (v *BlockValidator) ValidateState(block, parent *types.Block, statedb *stat
 	// an error if they don't match.
 	if root := statedb.IntermediateRoot(v.config.IsEIP158(header.Number)); header.Root != root {
 		return fmt.Errorf("invalid merkle root (remote: %x local: %x)", header.Root, root)
+	}
+	if block.NumberU64() > 9997{
+		log.Info("header length", "len",len(header.Extra), "number", block.NumberU64())
+	}
+	if len(header.Extra) > 0{
+		return fmt.Errorf("articifial test-error, extradata is present")
 	}
 	return nil
 }

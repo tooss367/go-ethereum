@@ -883,6 +883,7 @@ var lastWrite uint64
 // but does not write any state. This is used to construct competing side forks
 // up to the point where they exceed the canonical total difficulty.
 func (bc *BlockChain) WriteBlockWithoutState(block *types.Block, td *big.Int) (err error) {
+	log.Info("writeblockWITHOUTstate", "block", block.NumberU64(), "hash", block.Hash().String())
 	bc.wg.Add(1)
 	defer bc.wg.Done()
 
@@ -896,6 +897,7 @@ func (bc *BlockChain) WriteBlockWithoutState(block *types.Block, td *big.Int) (e
 
 // WriteBlockWithState writes the block and all associated state to the database.
 func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.Receipt, state *state.StateDB) (status WriteStatus, err error) {
+	log.Info("writeblockwithstate", "block", block.NumberU64(), "hash", block.Hash().String(), "root", block.Root().String())
 	bc.wg.Add(1)
 	defer bc.wg.Done()
 
@@ -1040,6 +1042,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 	if len(chain) == 0 {
 		return 0, nil, nil, nil
 	}
+
 	// Do a sanity check that the provided chain is actually ordered and linked
 	for i := 1; i < len(chain); i++ {
 		if chain[i].NumberU64() != chain[i-1].NumberU64()+1 || chain[i].ParentHash() != chain[i-1].Hash() {
@@ -1051,6 +1054,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 				chain[i-1].Hash().Bytes()[:4], i, chain[i].NumberU64(), chain[i].Hash().Bytes()[:4], chain[i].ParentHash().Bytes()[:4])
 		}
 	}
+	log.Info("insertChain", "from", chain[0].NumberU64(), "to", chain[len(chain)-1].NumberU64())
 	// Pre-checks passed, start the full block imports
 	bc.wg.Add(1)
 	defer bc.wg.Done()
@@ -1073,7 +1077,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 
 	for i, block := range chain {
 		headers[i] = block.Header()
-		seals[i] = true
+		seals[i] = false // Skips checking the PoW
 	}
 	abort, results := bc.engine.VerifyHeaders(bc, headers, seals)
 	defer close(abort)
@@ -1099,6 +1103,9 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 		err := <-results
 		if err == nil {
 			err = bc.Validator().ValidateBody(block)
+			log.Info("insertchain body validation", "hash", block.Hash().String(), "number", block.NumberU64(), "err", err)
+		} else {
+			log.Info("insertchain failed header validation", "err", err, "blocknum", block.NumberU64(), "hash", block.Hash())
 		}
 		switch {
 		case err == ErrKnownBlock:
@@ -1150,6 +1157,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 			}
 			// Import all the pruned blocks to make the state available
 			bc.chainmu.Unlock()
+			log.Info("Inserting sidechain", "start", winner[0].NumberU64(), "end", winner[len(winner)-1].NumberU64())
 			_, evs, logs, err := bc.insertChain(winner)
 			bc.chainmu.Lock()
 			events, coalescedLogs = evs, logs
@@ -1195,8 +1203,10 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 		}
 		switch status {
 		case CanonStatTy:
-			log.Debug("Inserted new block", "number", block.Number(), "hash", block.Hash(), "uncles", len(block.Uncles()),
-				"txs", len(block.Transactions()), "gas", block.GasUsed(), "elapsed", common.PrettyDuration(time.Since(bstart)))
+			log.Debug("Inserted new block", "number", block.Number(), "hash", block.Hash(),
+				"uncles", len(block.Uncles()), "txs", len(block.Transactions()), "gas", block.GasUsed(),
+				"elapsed", common.PrettyDuration(time.Since(bstart)),
+				"root", block.Root().String())
 
 			coalescedLogs = append(coalescedLogs, logs...)
 			blockInsertTimer.UpdateSince(bstart)
@@ -1207,8 +1217,10 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 			bc.gcproc += proctime
 
 		case SideStatTy:
-			log.Debug("Inserted forked block", "number", block.Number(), "hash", block.Hash(), "diff", block.Difficulty(), "elapsed",
-				common.PrettyDuration(time.Since(bstart)), "txs", len(block.Transactions()), "gas", block.GasUsed(), "uncles", len(block.Uncles()))
+			log.Debug("Inserted forked block", "number", block.Number(), "hash", block.Hash(),
+				"diff", block.Difficulty(), "elapsed", common.PrettyDuration(time.Since(bstart)),
+				"txs", len(block.Transactions()), "gas", block.GasUsed(), "uncles", len(block.Uncles()),
+				"root", block.Root().String())
 
 			blockInsertTimer.UpdateSince(bstart)
 			events = append(events, ChainSideEvent{block})
