@@ -597,9 +597,9 @@ func (d *Downloader) findAncestor(p *peerConnection, height uint64) (uint64, err
 	floor, ceil := int64(-1), d.lightchain.CurrentHeader().Number.Uint64()
 
 	if d.mode == FullSync {
-		ceil = d.blockchain.CurrentBlock().NumberU64()
+		ceil = d.blockchain.CurrentBlock().NumberU64()-2
 	} else if d.mode == FastSync {
-		ceil = d.blockchain.CurrentFastBlock().NumberU64()
+		ceil = d.blockchain.CurrentFastBlock().NumberU64()-2
 	}
 	if ceil >= MaxForkAncestry {
 		floor = int64(ceil - MaxForkAncestry)

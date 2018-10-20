@@ -894,6 +894,50 @@ func (bc *BlockChain) WriteBlockWithoutState(block *types.Block, td *big.Int) (e
 
 	return nil
 }
+func (bc *BlockChain) doPrune(root common.Hash)error{
+	triedb := bc.stateCache.TrieDB()
+	block := bc.CurrentBlock()
+	// Full but not archive node, do proper garbage collection
+	triedb.Reference(root, common.Hash{}) // metadata reference to keep trie alive
+	bc.triegc.Push(root, -int64(block.NumberU64()))
+
+	if current := block.NumberU64(); current > triesInMemory {
+		// If we exceeded our memory allowance, flush matured singleton nodes to disk
+		var (
+			nodes, imgs = triedb.Size()
+			limit       = common.StorageSize(bc.cacheConfig.TrieNodeLimit) * 1024 * 1024
+		)
+		if nodes > limit || imgs > 4*1024*1024 {
+			triedb.Cap(limit - ethdb.IdealBatchSize)
+		}
+		// Find the next state trie we need to commit
+		header := bc.GetHeaderByNumber(current - triesInMemory)
+		chosen := header.Number.Uint64()
+
+		// If we exceeded out time allowance, flush an entire trie to disk
+		if bc.gcproc > bc.cacheConfig.TrieTimeLimit {
+			// If we're exceeding limits but haven't reached a large enough memory gap,
+			// warn the user that the system is becoming unstable.
+			if chosen < lastWrite+triesInMemory && bc.gcproc >= 2*bc.cacheConfig.TrieTimeLimit {
+				log.Info("State in memory for too long, committing", "time", bc.gcproc, "allowance", bc.cacheConfig.TrieTimeLimit, "optimum", float64(chosen-lastWrite)/triesInMemory)
+			}
+			// Flush an entire trie and restart the counters
+			triedb.Commit(header.Root, true)
+			lastWrite = chosen
+			bc.gcproc = 0
+		}
+		// Garbage collect anything below our required write retention
+		for !bc.triegc.Empty() {
+			root, number := bc.triegc.Pop()
+			if uint64(-number) > chosen {
+				bc.triegc.Push(root, number)
+				break
+			}
+			triedb.Dereference(root.(common.Hash))
+		}
+	}
+	return nil
+}
 
 // WriteBlockWithState writes the block and all associated state to the database.
 func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.Receipt, state *state.StateDB) (status WriteStatus, err error) {
@@ -932,45 +976,7 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 			return NonStatTy, err
 		}
 	} else {
-		// Full but not archive node, do proper garbage collection
-		triedb.Reference(root, common.Hash{}) // metadata reference to keep trie alive
-		bc.triegc.Push(root, -int64(block.NumberU64()))
-
-		if current := block.NumberU64(); current > triesInMemory {
-			// If we exceeded our memory allowance, flush matured singleton nodes to disk
-			var (
-				nodes, imgs = triedb.Size()
-				limit       = common.StorageSize(bc.cacheConfig.TrieNodeLimit) * 1024 * 1024
-			)
-			if nodes > limit || imgs > 4*1024*1024 {
-				triedb.Cap(limit - ethdb.IdealBatchSize)
-			}
-			// Find the next state trie we need to commit
-			header := bc.GetHeaderByNumber(current - triesInMemory)
-			chosen := header.Number.Uint64()
-
-			// If we exceeded out time allowance, flush an entire trie to disk
-			if bc.gcproc > bc.cacheConfig.TrieTimeLimit {
-				// If we're exceeding limits but haven't reached a large enough memory gap,
-				// warn the user that the system is becoming unstable.
-				if chosen < lastWrite+triesInMemory && bc.gcproc >= 2*bc.cacheConfig.TrieTimeLimit {
-					log.Info("State in memory for too long, committing", "time", bc.gcproc, "allowance", bc.cacheConfig.TrieTimeLimit, "optimum", float64(chosen-lastWrite)/triesInMemory)
-				}
-				// Flush an entire trie and restart the counters
-				triedb.Commit(header.Root, true)
-				lastWrite = chosen
-				bc.gcproc = 0
-			}
-			// Garbage collect anything below our required write retention
-			for !bc.triegc.Empty() {
-				root, number := bc.triegc.Pop()
-				if uint64(-number) > chosen {
-					bc.triegc.Push(root, number)
-					break
-				}
-				triedb.Dereference(root.(common.Hash))
-			}
-		}
+		bc.doPrune(root)
 	}
 
 	// Write other block data using a batch.
@@ -1431,12 +1437,19 @@ func (bc *BlockChain) PostChainEvents(events []interface{}, logs []*types.Log) {
 }
 
 func (bc *BlockChain) update() {
-	futureTimer := time.NewTicker(5 * time.Second)
+	futureTimer := time.NewTicker(10 * time.Second)
 	defer futureTimer.Stop()
 	for {
 		select {
 		case <-futureTimer.C:
 			bc.procFutureBlocks()
+			// Make sure no inconsistent state is leaked during insertion
+			//bc.mu.Lock()
+			//state, _ := bc.State()
+			//log.Info("Doung a pruning, just for fun")
+			//bc.doPrune(state.IntermediateRoot(false))
+			//bc.mu.Unlock()
+
 		case <-bc.quit:
 			return
 		}
