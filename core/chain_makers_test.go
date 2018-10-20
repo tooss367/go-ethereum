@@ -75,6 +75,7 @@ func TestGenerateTwoChains(t *testing.T) {
 	mainlength := 13000
 	mainchain, _ := GenerateChain(gspec.Config, genesis, ethash.NewFaker(), db, mainlength, nil)
 	fork, _ := GenerateChain(gspec.Config, mainchain[forkpoint], ethash.NewFaker(), db, sidelength, func(i int, gen *BlockGen) {
+		gen.SetCoinbase(common.HexToAddress("0x0000000000000000000000000000000000001337"))
 		if i == 0 {
 			gen.SetExtra(common.FromHex("deadcode"))
 		}
