@@ -37,7 +37,7 @@ import (
 
 func TestGenerateTwoChains(t *testing.T) {
 	var (
-		db = ethdb.NewMemDatabase()
+		db          = ethdb.NewMemDatabase()
 		chainconfig = &params.ChainConfig{
 			ChainID:             big.NewInt(9898),
 			HomesteadBlock:      big.NewInt(5),
@@ -49,20 +49,21 @@ func TestGenerateTwoChains(t *testing.T) {
 			ByzantiumBlock:      big.NewInt(30),
 			ConstantinopleBlock: big.NewInt(40),
 			Ethash:              new(params.EthashConfig),
-		})
+		}
+	)
 
 	gspec := &Genesis{
-		Config: chainconfig,
-		Number: 0,
-		GasLimit:21000,
-		GasUsed:0,
-		Difficulty:big.NewInt(0x20000),
-		Coinbase: common.HexToAddress("0x0000000000000000000000000000000000000000"),
-		ParentHash:common.Hash{},
-		ExtraData: []byte{},
-		Timestamp:0x00,
-		Nonce:0x43,
-		Mixhash:common.Hash{},
+		Config:     chainconfig,
+		Number:     0,
+		GasLimit:   21000,
+		GasUsed:    0,
+		Difficulty: big.NewInt(0x20000),
+		Coinbase:   common.HexToAddress("0x0000000000000000000000000000000000000000"),
+		ParentHash: common.Hash{},
+		ExtraData:  []byte{},
+		Timestamp:  0x00,
+		Nonce:      0x43,
+		Mixhash:    common.Hash{},
 	}
 	genesis := gspec.MustCommit(db)
 	json, err := json.MarshalIndent(gspec, "", "    ")
@@ -80,9 +81,14 @@ func TestGenerateTwoChains(t *testing.T) {
 			gen.SetExtra(common.FromHex("deadcode"))
 		}
 	})
+	// 50 extra that we can drip-feed to trigger pruning
+	mainExtralength := 50
+	mainExtra, _ := GenerateChain(gspec.Config, mainchain[len(mainchain)-1], ethash.NewFaker(), db, mainExtralength, nil)
+
 	fmt.Printf("len main %d\n, len fork %d\n", len(mainchain), len(fork))
 	dumpToFile(mainchain, "main.rlp")
 	dumpToFile(fork, "fork.rlp")
+	dumpToFile(mainExtra, "mainextra.rlp")
 }
 func dumpToFile(chain []*types.Block, fn string) error {
 	// Open the file handle and potentially wrap with a gzip stream

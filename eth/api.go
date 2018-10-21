@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
 	"io"
 	"math/big"
 	"os"
@@ -245,6 +246,43 @@ func (api *PrivateAdminAPI) ImportChain(file string) (bool, error) {
 		}
 		blocks = blocks[:0]
 	}
+	return true, nil
+}
+
+// SlowImportChain imports a blocks from a local file, with one block every 15 seconds
+func (api *PrivateDebugAPI) SlowImportChain(file string) (bool, error) {
+	// Make sure the can access the file to import
+	in, err := os.Open(file)
+	if err != nil {
+		return false, err
+	}
+	var reader io.Reader = in
+	if strings.HasSuffix(file, ".gz") {
+		if reader, err = gzip.NewReader(reader); err != nil {
+			return false, err
+		}
+	}
+	go func() {
+		// Run actual the import in pre-configured batches
+		stream := rlp.NewStream(reader, 0)
+		futureTimer := time.NewTicker(15 * time.Second)
+		defer futureTimer.Stop()
+		defer in.Close()
+		for {
+			block := new(types.Block)
+			select {
+			case <-futureTimer.C:
+				if err := stream.Decode(block); err != nil {
+					return
+				}
+				log.Info("slow importing", "hash", block.Hash().String(), "number", block.NumberU64())
+				if _, err := api.eth.BlockChain().InsertChain([]*types.Block{block}); err != nil {
+					log.Error("slow block import fail ", "err",err)
+					return
+				}
+			}
+		}
+	}()
 	return true, nil
 }
 
