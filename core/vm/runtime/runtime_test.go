@@ -17,12 +17,16 @@
 package runtime
 
 import (
+	"bytes"
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/ethdb"
@@ -202,4 +206,334 @@ func BenchmarkEVM_CREATE_1200(bench *testing.B) {
 func BenchmarkEVM_CREATE2_1200(bench *testing.B) {
 	// initcode size 1200K, repeatedly calls CREATE2 and then modifies the mem contents
 	benchmarkEVM_Create(bench, "5b5862124f80600080f5600152600056")
+}
+
+type dummyTracer struct {
+	startgas uint64
+}
+
+func (d *dummyTracer) CaptureStart(from common.Address, to common.Address, call bool, input []byte, gas uint64, value *big.Int) error {
+	return nil
+}
+
+func (d *dummyTracer) CaptureState(env *vm.EVM, pc uint64, op vm.OpCode, gas, cost uint64, memory *vm.Memory, stack *vm.Stack, contract *vm.Contract, depth int, err error) error {
+	fmt.Printf("pc %x op: %v gas %d (%d), stack %v, cost %d\n", pc, op.String(), gas, d.startgas-gas, stack.Data(), cost)
+	return nil
+}
+
+func (d *dummyTracer) CaptureFault(env *vm.EVM, pc uint64, op vm.OpCode, gas, cost uint64, memory *vm.Memory, stack *vm.Stack, contract *vm.Contract, depth int, err error) error {
+	fmt.Printf("err %v\n", err)
+	return nil
+}
+
+func (d *dummyTracer) CaptureEnd(output []byte, gasUsed uint64, t time.Duration, err error) error {
+	fmt.Printf("end: gasUsed %d\n", gasUsed)
+	return nil
+}
+
+func TestConstantinopleSuicideAndCodehash(t *testing.T) {
+	var (
+		statedb, _     = state.New(common.Hash{}, state.NewDatabase(ethdb.NewMemDatabase()))
+		sender         = common.BytesToAddress(common.FromHex("a94f5374fce5edbc8e2a8697c15331677e6ebf0b"))
+		receiver       = common.BytesToAddress(common.FromHex("1000000000000000000000000000000000000000"))
+		selfdestructor = common.BytesToAddress(common.FromHex("dead"))
+	)
+
+	statedb.CreateAccount(sender)
+	// The flow of this test is
+	// 1. receiver does a 0-value CALL to 'selfdestructor', who
+	//   1.1. does selfdestruct(0xabcdef)
+	// 2. receiver then checks extcodehash(0xabcdef)
+	// The expected returnvalue is `0x0`, not empty codehash
+	code := "6000600060006000600061dead5a" + // push call args, ending with 0xdead address and GAS
+		"f1" + // CALL
+		"62abcdef" + // push3 0xabcdef
+		"3f" + // extcodehash
+		"600052" + // store result in memory location 1
+		"60206000" + // push size 32 offset 0
+		"f3" // return
+
+	statedb.SetCode(receiver, common.FromHex(code))
+	statedb.SetBalance(receiver, big.NewInt(1))
+
+	selfdestructorcode := []byte{
+		byte(vm.PUSH3), 0xAB, 0xCD, 0xEF,
+		byte(vm.SELFDESTRUCT),
+	}
+
+	statedb.SetCode(selfdestructor, selfdestructorcode)
+	runtimeConfig := Config{
+		Origin:      sender,
+		State:       statedb,
+		GasLimit:    10000000,
+		Difficulty:  big.NewInt(0x200000),
+		Time:        new(big.Int).SetUint64(0),
+		Coinbase:    common.Address{},
+		BlockNumber: new(big.Int).SetUint64(1),
+		ChainConfig: &params.ChainConfig{
+			ChainID:             big.NewInt(1),
+			HomesteadBlock:      new(big.Int),
+			ByzantiumBlock:      new(big.Int),
+			ConstantinopleBlock: new(big.Int),
+			DAOForkBlock:        new(big.Int),
+			DAOForkSupport:      false,
+			EIP150Block:         new(big.Int),
+			EIP155Block:         new(big.Int),
+			EIP158Block:         new(big.Int),
+		},
+		EVMConfig: vm.Config{},
+	}
+	expected := common.FromHex("0000000000000000000000000000000000000000000000000000000000000000")
+	ret, _, err := Call(receiver, []byte{}, &runtimeConfig)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+		return
+	}
+	if len(ret) != 32 {
+		t.Errorf("expected return length 32, got %d: %x ", len(ret), ret)
+		return
+	}
+	if bytes.Compare(ret, expected) != 0 {
+		t.Errorf("expected %v got %v", hexutil.Encode(expected), hexutil.Encode(ret))
+	}
+}
+
+func TestConstantinopleSuicideAndNonzerovalueCall(t *testing.T) {
+	var (
+		statedb, _     = state.New(common.Hash{}, state.NewDatabase(ethdb.NewMemDatabase()))
+		sender         = common.BytesToAddress(common.FromHex("a94f5374fce5edbc8e2a8697c15331677e6ebf0b"))
+		receiver       = common.BytesToAddress(common.FromHex("1000000000000000000000000000000000000000"))
+		selfdestructor = common.BytesToAddress(common.FromHex("dead"))
+		// Flip this to get a trace on stdout
+		printTrace = false
+	)
+
+	statedb.CreateAccount(sender)
+	// The flow of this test is
+	// 1. receiver does a 0-value CALL to 'selfdestructor', who
+	//   1.1. does selfdestruct(0xabcdef)
+	// 2. receiver then does a 1-wei call to 0xabcdef
+	// The call should cost params.CallNewAccountGas (25K) more than if the account
+	// had not existed
+
+	code := "6000600060006000600061dead5a" + // push call args, ending with 0xdead address and GAS
+		"f1" + // CALL
+		"62abcdef" + // push3 0xabcdef
+		"6000600060006000" + // zeroes
+		"6001" + "62abcdef" + "6000" + // value, address, gas
+		"f1" + // CALL
+		"5a" + // GAS
+		"600052" + // store result in memory location 1
+		"60206000" + // push size 32 offset 0
+		"f3" // return
+
+	statedb.SetCode(receiver, common.FromHex(code))
+	statedb.SetBalance(receiver, big.NewInt(1))
+
+	selfdestructorcode := []byte{
+		byte(vm.PUSH3), 0xAB, 0xCD, 0xEF,
+		byte(vm.SELFDESTRUCT),
+	}
+	vmconf := vm.Config{}
+	if printTrace {
+		vmconf = vm.Config{
+			Tracer: &dummyTracer{10000000},
+			Debug:  true,
+		}
+	}
+	statedb.SetCode(selfdestructor, selfdestructorcode)
+	runtimeConfig := Config{
+		Origin:      sender,
+		State:       statedb,
+		GasLimit:    10000000,
+		Difficulty:  big.NewInt(0x200000),
+		Time:        new(big.Int).SetUint64(0),
+		Coinbase:    common.Address{},
+		BlockNumber: new(big.Int).SetUint64(1),
+		ChainConfig: &params.ChainConfig{
+			ChainID:             big.NewInt(1),
+			HomesteadBlock:      new(big.Int),
+			ByzantiumBlock:      new(big.Int),
+			ConstantinopleBlock: new(big.Int),
+			DAOForkBlock:        new(big.Int),
+			DAOForkSupport:      false,
+			EIP150Block:         new(big.Int),
+			EIP155Block:         new(big.Int),
+			EIP158Block:         new(big.Int),
+		},
+		EVMConfig: vmconf,
+	}
+	expected := common.FromHex("0x000000000000000000000000000000000000000000000000000000000098017b")
+	ret, leftovergas, err := Call(receiver, []byte{}, &runtimeConfig)
+
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+		return
+	}
+	if bytes.Compare(ret, expected) != 0 {
+		t.Errorf("expected %v got %v", hexutil.Encode(expected), hexutil.Encode(ret))
+	}
+	gasUsed := 10000000 - leftovergas
+	// Gas
+	// 700 first call
+	// 5k suicide            5700
+	// 700 second call
+	// 25K CallNewAccountGas
+	// 9K for value-transfer,
+	// - 2300, the gas stipend that is not used
+	// 700+5000+700+25000+9000-2300 = 38100, plus some for other ops
+	if gasUsed != 38164 {
+		t.Errorf("expected return gasUsed, got %d: %x ", gasUsed, 38164)
+		return
+	}
+
+}
+
+func TestConstantinopleExtcodeCopyAndExtcodeHash(t *testing.T) {
+	var (
+		statedb, _     = state.New(common.Hash{}, state.NewDatabase(ethdb.NewMemDatabase()))
+		sender         = common.BytesToAddress(common.FromHex("a94f5374fce5edbc8e2a8697c15331677e6ebf0b"))
+		receiver       = common.BytesToAddress(common.FromHex("1000000000000000000000000000000000000000"))
+		selfdestructor = common.BytesToAddress(common.FromHex("dead"))
+		// Flip this to get a trace on stdout
+		printTrace = false
+	)
+
+	statedb.CreateAccount(sender)
+	// The flow of this test is
+	// 1. receiver then EXTCODEHASH on non-existing 0xabcdef
+	// 1. receiver does EXTCODECOPY on non-existing 0xabcdef
+	// 2. receiver then EXTCODEHASH on non-existing 0xabcdef
+	// The call should cost params.CallNewAccountGas (25K) more than if the account
+	// had not existed
+
+	code := "62abcdef3f" + // push 0xabcef, EXTCODEHASH
+		// length, codeoffset, memoffset, addr, EXTCODEHASH
+		"6001" + "6000" + "6000" + "62abcdef" + "3c" +
+		"62abcdef3f" + // push 0xabcef, EXTCODEHASH
+		"600052" + // store result in memory location 1
+		"60206000" + // push size 32 offset 0
+		"f3" // return
+	statedb.SetCode(receiver, common.FromHex(code))
+	statedb.SetBalance(receiver, big.NewInt(1))
+
+	selfdestructorcode := []byte{
+		byte(vm.PUSH3), 0xAB, 0xCD, 0xEF,
+		byte(vm.SELFDESTRUCT),
+	}
+	vmconf := vm.Config{}
+	if printTrace {
+		vmconf = vm.Config{
+			Tracer: &dummyTracer{10000000},
+			Debug:  true,
+		}
+	}
+	statedb.SetCode(selfdestructor, selfdestructorcode)
+	runtimeConfig := Config{
+		Origin:      sender,
+		State:       statedb,
+		GasLimit:    10000000,
+		Difficulty:  big.NewInt(0x200000),
+		Time:        new(big.Int).SetUint64(0),
+		Coinbase:    common.Address{},
+		BlockNumber: new(big.Int).SetUint64(1),
+		ChainConfig: &params.ChainConfig{
+			ChainID:             big.NewInt(1),
+			HomesteadBlock:      new(big.Int),
+			ByzantiumBlock:      new(big.Int),
+			ConstantinopleBlock: new(big.Int),
+			DAOForkBlock:        new(big.Int),
+			DAOForkSupport:      false,
+			EIP150Block:         new(big.Int),
+			EIP155Block:         new(big.Int),
+			EIP158Block:         new(big.Int),
+		},
+		EVMConfig: vmconf,
+	}
+	expected := common.FromHex("0x0000000000000000000000000000000000000000000000000000000000000000")
+	ret, _, err := Call(receiver, []byte{}, &runtimeConfig)
+
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+		return
+	}
+	if bytes.Compare(ret, expected) != 0 {
+		t.Errorf("expected %v got %v", hexutil.Encode(expected), hexutil.Encode(ret))
+	}
+}
+
+func TestConstantinopleZerovaluecallAndExtcodeHash(t *testing.T) {
+	var (
+		statedb, _     = state.New(common.Hash{}, state.NewDatabase(ethdb.NewMemDatabase()))
+		sender         = common.BytesToAddress(common.FromHex("a94f5374fce5edbc8e2a8697c15331677e6ebf0b"))
+		receiver       = common.BytesToAddress(common.FromHex("1000000000000000000000000000000000000000"))
+		selfdestructor = common.BytesToAddress(common.FromHex("dead"))
+		// Flip this to get a trace on stdout
+		printTrace = true
+	)
+
+	statedb.CreateAccount(sender)
+	// The flow of this test is
+	// 1. receiver does 0-value call to 0xabcdef
+	// 2. receiver does EXTCODEHASH on non-existing 0xabcdef
+	// 3. receiver does 0-value call to 0xabcdef
+	// 4. receiver does EXTCODEHASH on non-existing 0xabcdef
+	// The expected returnvalue is all zeroes
+	code := "" +
+		// four zeroes, then , value, addr, GAS,,  call
+		"6000" + "6000" + "6000" + "6000" + "6000" + "62abcdef" + "5a" + "f1" +
+		"62abcdef3f" + // push 0xabcef, EXTCODEHASH
+		// four zeroes, then , value, addr, GAS,,  call
+
+		"6000" + "6000" + "6000" + "6000" + "6000" + "62abcdef" + "5a" + "f1" +
+		"62abcdef3f" + // push 0xabcef, EXTCODEHASH
+		"600052" + // store result in memory location 1
+		"60206000" + // push size 32 offset 0
+		"f3" // return
+	statedb.SetCode(receiver, common.FromHex(code))
+	statedb.SetBalance(receiver, big.NewInt(1))
+
+	selfdestructorcode := []byte{
+		byte(vm.PUSH3), 0xAB, 0xCD, 0xEF,
+		byte(vm.SELFDESTRUCT),
+	}
+	vmconf := vm.Config{}
+	if printTrace {
+		vmconf = vm.Config{
+			Tracer: &dummyTracer{10000000},
+			Debug:  true,
+		}
+	}
+	statedb.SetCode(selfdestructor, selfdestructorcode)
+	runtimeConfig := Config{
+		Origin:      sender,
+		State:       statedb,
+		GasLimit:    10000000,
+		Difficulty:  big.NewInt(0x200000),
+		Time:        new(big.Int).SetUint64(0),
+		Coinbase:    common.Address{},
+		BlockNumber: new(big.Int).SetUint64(1),
+		ChainConfig: &params.ChainConfig{
+			ChainID:             big.NewInt(1),
+			HomesteadBlock:      new(big.Int),
+			ByzantiumBlock:      new(big.Int),
+			ConstantinopleBlock: new(big.Int),
+			DAOForkBlock:        new(big.Int),
+			DAOForkSupport:      false,
+			EIP150Block:         new(big.Int),
+			EIP155Block:         new(big.Int),
+			EIP158Block:         new(big.Int),
+		},
+		EVMConfig: vmconf,
+	}
+	expected := common.FromHex("0x0000000000000000000000000000000000000000000000000000000000000000")
+	ret, _, err := Call(receiver, []byte{}, &runtimeConfig)
+
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+		return
+	}
+	if bytes.Compare(ret, expected) != 0 {
+		t.Errorf("expected %v got %v", hexutil.Encode(expected), hexutil.Encode(ret))
+	}
 }
