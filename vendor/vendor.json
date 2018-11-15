@@ -189,10 +189,10 @@
 			"revisionTime": "2016-08-13T22:13:03Z"
 		},
 		{
-			"checksumSHA1": "u1I2uJjedcIDsy0eZl/IADANrN0=",
+			"checksumSHA1": "avL850iJMOBMojj2nz83/v7CrfU=",
 			"path": "github.com/holiman/uint256",
-			"revision": "296b15ac7a9ac6a94b41f6288f84880d426b3876",
-			"revisionTime": "2018-11-08T09:38:48Z"
+			"revision": "1bb4d2f0f6a60c2d0647bba1ae3a69a1b9b27963",
+			"revisionTime": "2018-11-15T10:55:49Z"
 		},
 		{
 			"checksumSHA1": "f55gR+6YClh0i/FOhdy66SOUiwY=",

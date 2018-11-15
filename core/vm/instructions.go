@@ -191,30 +191,10 @@ func opByte(pc *uint64, interpreter *EVMInterpreter, contract *Contract, memory 
 }
 func opAddmod(pc *uint64, interpreter *EVMInterpreter, contract *Contract, memory *Memory, stack *Stack) ([]byte, error) {
 	x, y, z := stack.pop(), stack.pop(), stack.peek()
-	if !z.IsZero() {
-		if x.IsUint128() && y.IsUint128() {
-			x.Add(x, y)
-			y.Mod(x, z)
-			z.Copy(y)
-		} else {
-			// if x + y overflows, the mod becomes wrong.
-			// Example:
-			// x = ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-			// y = fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe
-			// z = ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-			// ---
-			// x + y        =  1fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffd
-			// in 256 bit repr: fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffd
-			//
-			// As a hack, we use bigints here instead
-			// !TODO
-			bigx, bigy, bigz := x.ToBig(), y.ToBig(), z.ToBig()
-			bigx.Add(bigx, bigy)
-			bigz.Mod(bigx, bigz)
-			z.SetBytes(bigz.Bytes())
-		}
-	} else {
+	if z.IsZero() {
 		z.Clear()
+	} else {
+		z.AddMod(z, y, x)
 	}
 	interpreter.intPool.put(x, y)
 	return nil, nil
@@ -579,16 +559,20 @@ func opMstore8(pc *uint64, interpreter *EVMInterpreter, contract *Contract, memo
 
 func opSload(pc *uint64, interpreter *EVMInterpreter, contract *Contract, memory *Memory, stack *Stack) ([]byte, error) {
 	loc := stack.peek()
-	hash := common.BytesToHash(loc.Bytes())
-	val := interpreter.evm.StateDB.GetState(contract.Address(), hash).Bytes()
+	var hash [32]byte
+	loc.WriteToArray32(&hash)
+	val := interpreter.evm.StateDB.GetState(contract.Address(), common.Hash(hash)).Bytes()
 	loc.SetBytes(val)
 	return nil, nil
 }
 
 func opSstore(pc *uint64, interpreter *EVMInterpreter, contract *Contract, memory *Memory, stack *Stack) ([]byte, error) {
 	loc, val := stack.pop(), stack.pop()
-	hash := common.BytesToHash(loc.Bytes())
-	interpreter.evm.StateDB.SetState(contract.Address(), hash, common.BytesToHash(val.Bytes()))
+	var hashKey [32]byte
+	var hashVal [32]byte
+	loc.WriteToArray32(&hashKey)
+	val.WriteToArray32(&hashVal)
+	interpreter.evm.StateDB.SetState(contract.Address(), common.Hash(hashKey), common.Hash(hashVal))
 
 	interpreter.intPool.put(loc, val)
 	return nil, nil

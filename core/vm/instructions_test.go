@@ -211,9 +211,10 @@ func TestSLT(t *testing.T) {
 
 func TestAddMod(t *testing.T) {
 	var (
-		env   = NewEVM(Context{}, nil, params.TestChainConfig, Config{})
-		stack = newstack()
-		pc    = uint64(0)
+		env            = NewEVM(Context{}, nil, params.TestChainConfig, Config{})
+		stack          = newstack()
+		evmInterpreter = NewEVMInterpreter(env, env.vmConfig)
+		pc             = uint64(0)
 	)
 	tests := []struct {
 		x        string
@@ -229,6 +230,7 @@ func TestAddMod(t *testing.T) {
 	}
 	// x + y = 0x1fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffd
 	// in 256 bit repr, fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffd
+	evmInterpreter.intPool = poolOfIntPools.get()
 
 	for i, test := range tests {
 		x := new(uint256.Int).SetBytes(common.Hex2Bytes(test.x))
@@ -238,7 +240,7 @@ func TestAddMod(t *testing.T) {
 		stack.push(z)
 		stack.push(y)
 		stack.push(x)
-		opAddmod(&pc, env, nil, nil, stack)
+		opAddmod(&pc, evmInterpreter, nil, nil, stack)
 		actual := stack.pop()
 		if actual.Cmp(expected) != 0 {
 			t.Errorf("Testcase %d, expected  %v, got %v", i, expected.Hex(), actual.Hex())
@@ -494,12 +496,12 @@ func TestOpMstore(t *testing.T) {
 	mem.Resize(64)
 	pc := uint64(0)
 	v := "abcdef00000000000000abba000000000deaf000000c0de00100000000133700"
-	stack.pushN(new(big.Int).SetBytes(common.Hex2Bytes(v)), big.NewInt(0))
+	stack.pushN(new(uint256.Int).SetBytes(common.Hex2Bytes(v)), uint256.NewInt())
 	opMstore(&pc, evmInterpreter, nil, mem, stack)
 	if got := common.Bytes2Hex(mem.Get(0, 32)); got != v {
 		t.Fatalf("Mstore fail, got %v, expected %v", got, v)
 	}
-	stack.pushN(big.NewInt(0x1), big.NewInt(0))
+	stack.pushN(uint256.NewInt().SetUint64(0x1), uint256.NewInt())
 	opMstore(&pc, evmInterpreter, nil, mem, stack)
 	if common.Bytes2Hex(mem.Get(0, 32)) != "0000000000000000000000000000000000000000000000000000000000000001" {
 		t.Fatalf("Mstore failed to overwrite previous value")
@@ -519,8 +521,8 @@ func BenchmarkOpMstore(bench *testing.B) {
 	evmInterpreter.intPool = poolOfIntPools.get()
 	mem.Resize(64)
 	pc := uint64(0)
-	memStart := big.NewInt(0)
-	value := big.NewInt(0x1337)
+	memStart := uint256.NewInt()
+	value := uint256.NewInt().SetUint64(0x1337)
 
 	bench.ResetTimer()
 	for i := 0; i < bench.N; i++ {
@@ -541,11 +543,11 @@ func BenchmarkOpSHA3(bench *testing.B) {
 	evmInterpreter.intPool = poolOfIntPools.get()
 	mem.Resize(32)
 	pc := uint64(0)
-	start := big.NewInt(0)
+	start := uint256.NewInt()
 
 	bench.ResetTimer()
 	for i := 0; i < bench.N; i++ {
-		stack.pushN(big.NewInt(32), start)
+		stack.pushN(uint256.NewInt().SetUint64(32), start)
 		opSha3(&pc, evmInterpreter, nil, mem, stack)
 	}
 	poolOfIntPools.put(evmInterpreter.intPool)

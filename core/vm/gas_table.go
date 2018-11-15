@@ -126,7 +126,7 @@ func gasSStore(gt params.GasTable, evm *EVM, contract *Contract, stack *Stack, m
 		// 2. From a non-zero value address to a zero-value address (DELETE)
 		// 3. From a non-zero to a non-zero                         (CHANGE)
 		switch {
-		case current == (common.Hash{}) && !y.IsZero() : // 0 => non 0
+		case current == (common.Hash{}) && !y.IsZero(): // 0 => non 0
 			return params.SstoreSetGas, nil
 		case current != (common.Hash{}) && y.IsZero(): // non 0 => 0
 			evm.StateDB.AddRefund(params.SstoreRefundGas)
