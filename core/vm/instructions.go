@@ -194,7 +194,7 @@ func opAddmod(pc *uint64, interpreter *EVMInterpreter, contract *Contract, memor
 	if z.IsZero() {
 		z.Clear()
 	} else {
-		z.AddMod(z, y, x)
+		z.AddMod(x, y, z)
 	}
 	interpreter.intPool.put(x, y)
 	return nil, nil
@@ -243,7 +243,7 @@ func opSAR(pc *uint64, interpreter *EVMInterpreter, contract *Contract, memory *
 	defer interpreter.intPool.put(shift) // First operand back into the pool
 
 	if shift.GtUint64(256) {
-		if value.Sign() > 0 {
+		if value.Sign() >= 0 {
 			value.Clear()
 		} else {
 			value.Clear()
@@ -362,15 +362,22 @@ func opReturnDataCopy(pc *uint64, interpreter *EVMInterpreter, contract *Contrac
 		memOffset  = stack.pop()
 		dataOffset = stack.pop()
 		length     = stack.pop()
-		end        = interpreter.intPool.get()
 	)
+
+	uint64offset, overflow := dataOffset.Uint64WithOverflow()
+	if overflow {
+		return nil, errReturnDataOutOfBounds
+	}
+
+	end := interpreter.intPool.get()
 	end.Add(dataOffset, length)
 	defer interpreter.intPool.put(memOffset, dataOffset, length, end)
 
-	if end.BitLen() > 64 || uint64(len(interpreter.returnData)) < end.Uint64() {
+	uint64end, overflow := end.Uint64WithOverflow()
+	if overflow || uint64(len(interpreter.returnData)) < uint64end {
 		return nil, errReturnDataOutOfBounds
 	}
-	memory.Set(memOffset.Uint64(), length.Uint64(), interpreter.returnData[dataOffset.Uint64():end.Uint64()])
+	memory.Set(memOffset.Uint64(), length.Uint64(), interpreter.returnData[uint64offset:uint64end])
 
 	return nil, nil
 }
