@@ -89,7 +89,8 @@ type Database struct {
 	dirtiesSize   common.StorageSize // Storage size of the dirty node cache (exc. flushlist)
 	preimagesSize common.StorageSize // Storage size of the preimages cache
 
-	lock sync.RWMutex
+	lock  sync.RWMutex
+	debug bool
 }
 
 // rawNode is a simple binary blob used to differentiate between collapsed trie
@@ -364,6 +365,9 @@ func (db *Database) node(hash common.Hash, cachegen uint16) node {
 		if enc, err := db.cleans.Get(string(hash[:])); err == nil && enc != nil {
 			memcacheCleanHitMeter.Mark(1)
 			memcacheCleanReadMeter.Mark(int64(len(enc)))
+			if db.debug {
+				log.Info("db.node", "hash", fmt.Sprintf("%x", hash), "cachegen", cachegen, "cache", "cleans")
+			}
 			return mustDecodeNode(hash[:], enc, cachegen)
 		}
 	}
@@ -373,6 +377,10 @@ func (db *Database) node(hash common.Hash, cachegen uint16) node {
 	db.lock.RUnlock()
 
 	if dirty != nil {
+		if db.debug {
+			log.Info("db.node", "hash", fmt.Sprintf("%x", hash), "cachegen", cachegen, "cache", "dirty")
+		}
+
 		return dirty.obj(hash, cachegen)
 	}
 	// Content unavailable in memory, attempt to retrieve from disk
@@ -385,6 +393,10 @@ func (db *Database) node(hash common.Hash, cachegen uint16) node {
 		memcacheCleanMissMeter.Mark(1)
 		memcacheCleanWriteMeter.Mark(int64(len(enc)))
 	}
+	if db.debug {
+		log.Info("db.node", "hash", fmt.Sprintf("%x", hash), "cachegen", cachegen, "cache", "disk")
+	}
+
 	return mustDecodeNode(hash[:], enc, cachegen)
 }
 
@@ -396,6 +408,10 @@ func (db *Database) Node(hash common.Hash) ([]byte, error) {
 		if enc, err := db.cleans.Get(string(hash[:])); err == nil && enc != nil {
 			memcacheCleanHitMeter.Mark(1)
 			memcacheCleanReadMeter.Mark(int64(len(enc)))
+			if db.debug {
+				log.Info("db.node", "hash", fmt.Sprintf("%x", hash), "cache", "cleans")
+			}
+
 			return enc, nil
 		}
 	}
@@ -405,6 +421,10 @@ func (db *Database) Node(hash common.Hash) ([]byte, error) {
 	db.lock.RUnlock()
 
 	if dirty != nil {
+		if db.debug {
+			log.Info("db.node", "hash", fmt.Sprintf("%x", hash), "cache", "dirty")
+		}
+
 		return dirty.rlp(), nil
 	}
 	// Content unavailable in memory, attempt to retrieve from disk
@@ -416,6 +436,10 @@ func (db *Database) Node(hash common.Hash) ([]byte, error) {
 			memcacheCleanWriteMeter.Mark(int64(len(enc)))
 		}
 	}
+	if db.debug {
+		log.Info("db.node", "hash", fmt.Sprintf("%x", hash), "cache", "disk")
+	}
+
 	return enc, err
 }
 
@@ -511,6 +535,10 @@ func (db *Database) Dereference(root common.Hash) {
 
 // dereference is the private locked version of Dereference.
 func (db *Database) dereference(child common.Hash, parent common.Hash) {
+	if db.debug {
+		log.Info("db.dereference", "child", fmt.Sprintf("%x", child), "parent", fmt.Sprintf("%x", parent))
+	}
+
 	// Dereference the parent-child
 	node := db.dirties[parent]
 
@@ -756,6 +784,10 @@ func (db *Database) commit(hash common.Hash, batch ethdb.Batch) error {
 // commit is to ensure consistent data availability while moving from memory
 // to disk.
 func (db *Database) uncache(hash common.Hash) {
+	if db.debug {
+		log.Info("db.uncache", "hash", fmt.Sprintf("%x", hash))
+	}
+
 	// If the node does not exist, we're done on this path
 	node, ok := db.dirties[hash]
 	if !ok {
@@ -777,6 +809,7 @@ func (db *Database) uncache(hash common.Hash) {
 	for _, child := range node.childs() {
 		db.uncache(child)
 	}
+
 	delete(db.dirties, hash)
 	db.dirtiesSize -= common.StorageSize(common.HashLength + int(node.size))
 }
