@@ -90,7 +90,7 @@ type Database struct {
 	preimagesSize common.StorageSize // Storage size of the preimages cache
 
 	lock  sync.RWMutex
-	debug bool
+	Debug bool
 }
 
 // rawNode is a simple binary blob used to differentiate between collapsed trie
@@ -365,7 +365,7 @@ func (db *Database) node(hash common.Hash, cachegen uint16) node {
 		if enc, err := db.cleans.Get(string(hash[:])); err == nil && enc != nil {
 			memcacheCleanHitMeter.Mark(1)
 			memcacheCleanReadMeter.Mark(int64(len(enc)))
-			if db.debug {
+			if db.Debug {
 				log.Info("db.node", "hash", fmt.Sprintf("%x", hash), "cachegen", cachegen, "cache", "cleans")
 			}
 			return mustDecodeNode(hash[:], enc, cachegen)
@@ -377,7 +377,7 @@ func (db *Database) node(hash common.Hash, cachegen uint16) node {
 	db.lock.RUnlock()
 
 	if dirty != nil {
-		if db.debug {
+		if db.Debug {
 			log.Info("db.node", "hash", fmt.Sprintf("%x", hash), "cachegen", cachegen, "cache", "dirty")
 		}
 
@@ -393,7 +393,7 @@ func (db *Database) node(hash common.Hash, cachegen uint16) node {
 		memcacheCleanMissMeter.Mark(1)
 		memcacheCleanWriteMeter.Mark(int64(len(enc)))
 	}
-	if db.debug {
+	if db.Debug {
 		log.Info("db.node", "hash", fmt.Sprintf("%x", hash), "cachegen", cachegen, "cache", "disk")
 	}
 
@@ -408,7 +408,7 @@ func (db *Database) Node(hash common.Hash) ([]byte, error) {
 		if enc, err := db.cleans.Get(string(hash[:])); err == nil && enc != nil {
 			memcacheCleanHitMeter.Mark(1)
 			memcacheCleanReadMeter.Mark(int64(len(enc)))
-			if db.debug {
+			if db.Debug {
 				log.Info("db.node", "hash", fmt.Sprintf("%x", hash), "cache", "cleans")
 			}
 
@@ -421,7 +421,7 @@ func (db *Database) Node(hash common.Hash) ([]byte, error) {
 	db.lock.RUnlock()
 
 	if dirty != nil {
-		if db.debug {
+		if db.Debug {
 			log.Info("db.node", "hash", fmt.Sprintf("%x", hash), "cache", "dirty")
 		}
 
@@ -436,7 +436,7 @@ func (db *Database) Node(hash common.Hash) ([]byte, error) {
 			memcacheCleanWriteMeter.Mark(int64(len(enc)))
 		}
 	}
-	if db.debug {
+	if db.Debug {
 		log.Info("db.node", "hash", fmt.Sprintf("%x", hash), "cache", "disk")
 	}
 
@@ -535,7 +535,7 @@ func (db *Database) Dereference(root common.Hash) {
 
 // dereference is the private locked version of Dereference.
 func (db *Database) dereference(child common.Hash, parent common.Hash) {
-	if db.debug {
+	if db.Debug {
 		log.Info("db.dereference", "child", fmt.Sprintf("%x", child), "parent", fmt.Sprintf("%x", parent))
 	}
 
@@ -784,7 +784,7 @@ func (db *Database) commit(hash common.Hash, batch ethdb.Batch) error {
 // commit is to ensure consistent data availability while moving from memory
 // to disk.
 func (db *Database) uncache(hash common.Hash) {
-	if db.debug {
+	if db.Debug {
 		log.Info("db.uncache", "hash", fmt.Sprintf("%x", hash))
 	}
 

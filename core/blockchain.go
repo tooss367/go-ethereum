@@ -1099,6 +1099,13 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 
 	// Iterate over the blocks and insert when the verifier permits
 	for i, block := range chain {
+
+		if block.NumberU64() >= 4181243 && block.NumberU64() < 4181245 {
+			bc.stateCache.SetDebug(true)
+		}else{
+			bc.stateCache.SetDebug(false)
+		}
+
 		// If the chain is terminating, stop processing blocks
 		if atomic.LoadInt32(&bc.procInterrupt) == 1 {
 			log.Debug("Premature abort during blocks processing")

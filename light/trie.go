@@ -43,6 +43,9 @@ type odrDatabase struct {
 	id      *TrieID
 	backend OdrBackend
 }
+func (db *odrDatabase) SetDebug(debug bool) {
+
+}
 
 func (db *odrDatabase) OpenTrie(root common.Hash) (state.Trie, error) {
 	return &odrTrie{db: db, id: db.id}, nil
