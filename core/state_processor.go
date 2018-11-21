@@ -17,6 +17,7 @@
 package core
 
 import (
+	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/misc"
@@ -24,6 +25,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -72,6 +74,17 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		if err != nil {
 			return nil, nil, 0, err
 		}
+		if header.Number.Uint64() >= 4181243 && header.Number.Uint64() <= 4181245 {
+			addr := common.HexToAddress("a01d43b57c80da799abcf74a063c84e145e2bdfa")
+			code := statedb.GetCode(addr)
+			cHash := statedb.GetCodeHash(addr)
+			nonce := statedb.GetNonce(addr)
+			log.Info("Debug lookup", "txi", i, "address", fmt.Sprintf("0x%x", addr),
+				"codehash", fmt.Sprintf("%v", cHash.Hex()),
+				"codelen", fmt.Sprintf("%d bytes", len(code)),
+				"nonce", nonce, "block", header.Number.Uint64())
+		}
+
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
 	}
