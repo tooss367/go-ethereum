@@ -435,3 +435,26 @@ func TestCopyOfCopy(t *testing.T) {
 		t.Fatalf("2nd copy fail, expected 42, got %v", got)
 	}
 }
+
+func TestCodeClash(t *testing.T) {
+	// Create an empty state database
+	db := ethdb.NewMemDatabase()
+	state, _ := New(common.Hash{}, NewDatabaseWithCache(db,1))
+
+	addr := common.BytesToAddress([]byte{1,2})
+	state.AddBalance(addr, big.NewInt(1))
+	state.SetState(addr, common.HexToHash("f1885eda54b7a053318cd41e2093220dab15d65381b1157a3633a83bfd5c9239"), common.HexToHash("0x01"))
+	// f1885eda54b7a053318cd41e2093220dab15d65381b1157a3633a83bfd5c9239
+	state.SetCode(addr, []byte{1,2,3})
+	state.IntermediateRoot(false)
+	_, _ = state.Commit(false)
+
+	// Copy the state, modify both in-memory
+	state = state.Copy()
+
+
+	state.GetState(addr, common.HexToHash("f1885eda54b7a053318cd41e2093220dab15d65381b1157a3633a83bfd5c9239"))
+	fmt.Printf("code hash %x\n", state.GetCodeHash(addr))
+	c := state.GetCode(addr)
+	fmt.Printf("code %x\n", c)
+}
