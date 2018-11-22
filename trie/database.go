@@ -499,7 +499,9 @@ func (db *Database) reference(child common.Hash, parent common.Hash) {
 		return
 	}
 	if child == common.HexToHash("ce33220d5c7f0d09d75ceff76c05863c5e7d6e801c70dfe7d5d45d4c44e80654") {
-		log.Info("trie/database adding reference", "child/codehash", "0xce33220d5c7f0d09d75ceff76c05863c5e7d6e801c70dfe7d5d45d4c44e80654")
+		log.Info("trie/database adding reference",
+			"child/codehash", "0xce33220d5c7f0d09d75ceff76c05863c5e7d6e801c70dfe7d5d45d4c44e80654",
+			"parent", fmt.Sprintf("%x", parent))
 	}
 	// If the reference already exists, only duplicate for roots
 	if db.dirties[parent].children == nil {
@@ -547,7 +549,8 @@ func (db *Database) dereference(child common.Hash, parent common.Hash) {
 	node := db.dirties[parent]
 
 	if child == common.HexToHash("ce33220d5c7f0d09d75ceff76c05863c5e7d6e801c70dfe7d5d45d4c44e80654") {
-		log.Info("trie/database dereference", "child/codehash", "0xce33220d5c7f0d09d75ceff76c05863c5e7d6e801c70dfe7d5d45d4c44e80654")
+		log.Info("trie/database dereference", "child/codehash", "0xce33220d5c7f0d09d75ceff76c05863c5e7d6e801c70dfe7d5d45d4c44e80654",
+			"parent", fmt.Sprintf("%x", parent))
 	}
 
 	if node.children != nil && node.children[child] > 0 {
@@ -677,7 +680,6 @@ func (db *Database) Cap(limit common.StorageSize) error {
 				panic(fmt.Sprintf("node flushed while child still in memory: %x (child %x)", db.oldest, child))
 			}
 		}
-
 
 		db.dirtiesSize -= common.StorageSize(common.HashLength + int(node.size))
 	}

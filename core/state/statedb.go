@@ -661,7 +661,9 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (root common.Hash, err error) 
 		code := common.BytesToHash(account.CodeHash)
 		if code != emptyCode {
 			if code == common.HexToHash("ce33220d5c7f0d09d75ceff76c05863c5e7d6e801c70dfe7d5d45d4c44e80654"){
-				log.Info("statedb adding reference","codehash", "0xce33220d5c7f0d09d75ceff76c05863c5e7d6e801c70dfe7d5d45d4c44e80654" )
+				log.Info("statedb adding reference",
+					"codehash", "0xce33220d5c7f0d09d75ceff76c05863c5e7d6e801c70dfe7d5d45d4c44e80654",
+					"parent", fmt.Sprintf("%x", parent))
 			}
 			s.db.TrieDB().Reference(code, parent)
 		}
