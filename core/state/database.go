@@ -59,6 +59,7 @@ type Database interface {
 	TrieDB() *trie.Database
 
 	SetDebug(debug bool)
+	IsDebug() bool
 }
 
 // Trie is a Ethereum Merkle Trie.
@@ -101,6 +102,11 @@ type cachingDB struct {
 func (db *cachingDB) SetDebug(debug bool) {
 	db.db.Debug = debug
 }
+func (db *cachingDB) IsDebug() bool{
+	return db.db.Debug
+}
+
+
 // OpenTrie opens the main account trie.
 func (db *cachingDB) OpenTrie(root common.Hash) (Trie, error) {
 	db.mu.Lock()

@@ -1223,16 +1223,19 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 				"txs", len(block.Transactions()), "gas", block.GasUsed(), "elapsed", common.PrettyDuration(time.Since(bstart)))
 
 			///-- some debug printouts
-			//if block.NumberU64() > 4175400{
-			//	addr := common.HexToAddress("a01d43b57c80da799abcf74a063c84e145e2bdfa")
-			//	code := state.GetCode(addr)
-			//	cHash := state.GetCodeHash(addr)
-			//	nonce := state.GetNonce(addr)
-			//	log.Info("Debug lookup", "address", fmt.Sprintf("0x%x", addr),
-			//		"codehash", fmt.Sprintf("%v", cHash.Hex()),
-			//		"codelen", fmt.Sprintf("%d bytes", len(code)),
-			//		"nonce", nonce, "block", block.Number())
-			//}
+			if block.NumberU64() > 4175400{
+				addr := common.HexToAddress("a01d43b57c80da799abcf74a063c84e145e2bdfa")
+				code := state.GetCode(addr)
+				cHash := state.GetCodeHash(addr)
+				nonce := state.GetNonce(addr)
+				log.Info("Debug lookup", "address", fmt.Sprintf("0x%x", addr),
+					"codehash", fmt.Sprintf("%v", cHash.Hex()),
+					"codelen", fmt.Sprintf("%d bytes", len(code)),
+					"nonce", nonce, "block", block.Number())
+				if nonce == 1&& len(code) == 0{
+					panic("intentional panic,let's stop here")
+				}
+			}
 			// --- end debug
 			coalescedLogs = append(coalescedLogs, logs...)
 			blockInsertTimer.UpdateSince(bstart)

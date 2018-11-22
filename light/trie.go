@@ -46,7 +46,9 @@ type odrDatabase struct {
 func (db *odrDatabase) SetDebug(debug bool) {
 
 }
-
+func (db *odrDatabase) IsDebug() bool{
+	return false
+}
 func (db *odrDatabase) OpenTrie(root common.Hash) (state.Trie, error) {
 	return &odrTrie{db: db, id: db.id}, nil
 }

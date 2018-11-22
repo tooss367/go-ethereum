@@ -498,6 +498,9 @@ func (db *Database) reference(child common.Hash, parent common.Hash) {
 	if !ok {
 		return
 	}
+	if child == common.HexToHash("ce33220d5c7f0d09d75ceff76c05863c5e7d6e801c70dfe7d5d45d4c44e80654"){
+		log.Info("trie/database adding reference","child/codehash", "0xce33220d5c7f0d09d75ceff76c05863c5e7d6e801c70dfe7d5d45d4c44e80654" )
+	}
 	// If the reference already exists, only duplicate for roots
 	if db.dirties[parent].children == nil {
 		db.dirties[parent].children = make(map[common.Hash]uint16)
@@ -535,12 +538,17 @@ func (db *Database) Dereference(root common.Hash) {
 
 // dereference is the private locked version of Dereference.
 func (db *Database) dereference(child common.Hash, parent common.Hash) {
+
 	if db.Debug {
 		log.Info("db.dereference", "child", fmt.Sprintf("%x", child), "parent", fmt.Sprintf("%x", parent))
 	}
 
 	// Dereference the parent-child
 	node := db.dirties[parent]
+
+	if child == common.HexToHash("ce33220d5c7f0d09d75ceff76c05863c5e7d6e801c70dfe7d5d45d4c44e80654"){
+		log.Info("trie/database dereference","child/codehash", "0xce33220d5c7f0d09d75ceff76c05863c5e7d6e801c70dfe7d5d45d4c44e80654" )
+	}
 
 	if node.children != nil && node.children[child] > 0 {
 		node.children[child]--
