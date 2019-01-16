@@ -196,9 +196,10 @@ func (p *pruner) loop() {
 			interrupted := false
 			for i, task := range tasks {
 				// Delete this particular task from the deduplication set
-				delete(taskset, makeNodeKey(task.owner, task.hash))
+				key := makeNodeKey(task.owner, task.hash)
+				delete(taskset, key)
 
-				remain := p.prune(task.owner, task.hash, task.path, taskset, tries, batch)
+				remain := p.prune(key, task.owner, task.hash, task.path, taskset, tries, batch)
 				if len(remain) > 0 {
 					// Schedule any newly discovered but interrupted tasks for later
 					for j := 0; j < len(remain); j++ {
@@ -263,10 +264,10 @@ func (p *pruner) loop() {
 // it, cascading until all dangling nodes are removed. If the pruner's interrupt
 // has been triggered (block processing pending), the remaining nodes are bubbled
 // up to the caller to reschedule later.
-func (p *pruner) prune(owner common.Hash, hash common.Hash, path []byte, taskset map[string]struct{}, tries []*traverser, batch ethdb.Batch) []*prunerTarget {
+func (p *pruner) prune(key string, owner common.Hash, hash common.Hash, path []byte, taskset map[string]struct{}, tries []*traverser, batch ethdb.Batch) []*prunerTarget {
 	// If the node is already queued for pruning, don't duplicate any effort on it
-	key := makeNodeKey(owner, hash)
-	if _, ok := taskset[makeNodeKey(owner, hash)]; ok {
+	//key := makeNodeKey(owner, hash)
+	if _, ok := taskset[key]; ok {
 		return nil
 	}
 	// If the node is still live in the memory cache, it's still referenced so we
@@ -291,7 +292,7 @@ func (p *pruner) prune(owner common.Hash, hash common.Hash, path []byte, taskset
 		trie.unref(2, unrefs)
 	}
 	// Dead node found, delete it from the database
-	dead := []byte(makeNodeKey(owner, hash))
+	dead := []byte(key)
 	blob, err := p.db.diskdb.Get(dead)
 	if blob == nil || err != nil {
 		// Node already deleted by something else, happens with delayed pruning
@@ -316,7 +317,7 @@ func (p *pruner) prune(owner common.Hash, hash common.Hash, path []byte, taskset
 		// Pruning not interrupted until now, attempt to process children too. It's
 		// fine to assign the result directly to the `remain` slice because it's nil
 		// anyway until the interrupt triggers.
-		remain = p.prune(owner, hash, path, taskset, tries, batch)
+		remain = p.prune(makeNodeKey(owner, hash), owner, hash, path, taskset, tries, batch)
 		return nil
 	})
 	return remain
