@@ -17,9 +17,13 @@
 package vm
 
 import (
+	"encoding/json"
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
 	"hash"
+	"io/ioutil"
 	"sync/atomic"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
@@ -46,6 +50,13 @@ type Config struct {
 	EWASMInterpreter string
 	// Type of the EVM interpreter
 	EVMInterpreter string
+}
+
+func DumpStats(num uint64) {
+	fname := fmt.Sprintf("metrics_to_%d", num)
+	d1, _:= json.Marshal(measurements)
+	err := ioutil.WriteFile(fname, d1, 0644)
+	log.Info("Dumped metrics", "file", fname, "number", num, "error", err )
 }
 
 // Interpreter is used to run Ethereum based contracts and will utilise the
@@ -118,6 +129,16 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 	}
 }
 
+type opMeter struct {
+	Num  uint64
+	Time time.Duration
+}
+
+var currentTimer time.Time
+var currentOp OpCode
+
+var measurements [256]opMeter
+
 // Run loops and evaluates the contract's code with the given input data and returns
 // the return byte-slice and an error if one occurred.
 //
@@ -132,7 +153,6 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			in.intPool = nil
 		}()
 	}
-
 	// Increment the call depth which is restricted to 1024
 	in.evm.depth++
 	defer func() { in.evm.depth-- }()
@@ -197,6 +217,17 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		// Get the operation from the jump table and validate the stack to ensure there are
 		// enough stack items available to perform the operation.
 		op = contract.GetOp(pc)
+
+		if currentOp != 0 {
+			// Prev op running
+			endTime := time.Now()
+			execTime := endTime.Sub(currentTimer)
+			measurements[currentOp].Num++
+			measurements[currentOp].Time += execTime
+		}
+		currentOp = op
+		currentTimer = time.Now()
+
 		operation := in.cfg.JumpTable[op]
 		if !operation.valid {
 			return nil, fmt.Errorf("invalid opcode 0x%x", int(op))
