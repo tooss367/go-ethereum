@@ -74,7 +74,7 @@ func newFreezer(datadir string, namespace string) (*freezer, error) {
 		tables: make(map[string]*freezerTable),
 	}
 	for _, name := range []string{"hashes", "headers", "bodies", "receipts", "diffs"} {
-		table, err := newTable(datadir, name, readMeter, writeMeter)
+		table, err := newDefaultTable(datadir, name, readMeter, writeMeter)
 		if err != nil {
 			for _, table := range freezer.tables {
 				table.Close()
