@@ -289,6 +289,14 @@ func (t *freezerTable) getFile(num uint16, flag int) (f *os.File, err error) {
 	return f, nil
 }
 
+// releaseFile closes a file, and removes it from the open file cache.
+func (t *freezerTable) releaseFile(num uint16) {
+	if f, exist := t.files[num]; exist {
+		delete(t.files, num)
+		f.Close()
+	}
+}
+
 // Append injects a binary blob at the end of the freezer table. The item index
 // is a precautionary parameter to ensure data correctness, but the table will
 // reject already existing data.
@@ -315,14 +323,14 @@ func (t *freezerTable) Append(item uint64, blob []byte) error {
 		nextId := t.id + 1
 		// We open the next file in truncated mode -- if this file already
 		// exists, we need to start over from scratch on it
-		content, err := t.getFile(nextId, os.O_RDWR|os.O_CREATE|os.O_TRUNC)
+		newHead, err := t.getFile(nextId, os.O_RDWR|os.O_CREATE|os.O_TRUNC)
 		if err != nil {
 			return err
 		}
-		// Swap out the current file
-		t.head = content
-		t.bytes = 0
-		t.id = nextId
+		// Close old file. It will be reopened in RDONLY mode if needed
+		t.releaseFile(t.id)
+		// Swap out the current head
+		t.head, t.bytes, t.id = newHead, 0, nextId
 	}
 	t.head.Write(blob)
 	t.bytes += bLen
