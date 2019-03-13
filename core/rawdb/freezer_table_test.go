@@ -1,0 +1,305 @@
+package rawdb
+
+import (
+	"bytes"
+	"fmt"
+	"github.com/ethereum/go-ethereum/metrics"
+	"math/rand"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func init() {
+	rand.Seed(time.Now().Unix())
+}
+
+// Gets a chunk of data, filled with 'b'
+func getChunk(size int, b byte) []byte {
+	data := make([]byte, size)
+	for i, _ := range data {
+		data[i] = b
+	}
+	return data
+}
+
+func print(t *testing.T, f *freezerTable, item uint64) {
+	a, err := f.Retrieve(item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Printf("db[%d] =  %x\n", item, a)
+}
+
+// TestFreezerBasics test initializing a freezertable from scratch, writing to the table,
+// and reading it back.
+func TestFreezerBasics(t *testing.T) {
+	t.Parallel()
+	// set cutoff at 50 bytes
+	f, err := newTable(os.TempDir(),
+		fmt.Sprintf("unittest-%d", rand.Uint64()),
+		metrics.NewMeter(), metrics.NewMeter(), 50, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	// Write 15 bytes 255 times, results in 85 files
+	for x := byte(0); x < 255; x++ {
+		data := getChunk(15, x)
+		f.Append(uint64(x), data)
+	}
+
+	//print(t, f, 0)
+	//print(t, f, 1)
+	//print(t, f, 2)
+	//
+	//db[0] =  000000000000000000000000000000
+	//db[1] =  010101010101010101010101010101
+	//db[2] =  020202020202020202020202020202
+
+	for y := byte(0); y < 255; y++ {
+		exp := getChunk(15, y)
+		got, err := f.Retrieve(uint64(y))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, exp) {
+			t.Fatalf("test %d, got \n%x != \n%x", y, got, exp)
+		}
+	}
+}
+
+// TestFreezerRepairDanglingHead tests that we can recover if offsets are removed
+func TestFreezerRepairDanglingHead(t *testing.T) {
+	t.Parallel()
+	wm, rm := metrics.NewMeter(), metrics.NewMeter()
+	fname := fmt.Sprintf("dangling_headtest-%d", rand.Uint64())
+
+	{ // Fill table
+		f, err := newTable(os.TempDir(), fname, rm, wm, 50, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Write 15 bytes 255 times
+		for x := byte(0); x < 0xff; x++ {
+			data := getChunk(15, x)
+			f.Append(uint64(x), data)
+		}
+		// The last item should be there
+		if _, err = f.Retrieve(0xfe); err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+	// open the index
+	idxFile, err := os.OpenFile(filepath.Join(os.TempDir(), fmt.Sprintf("%s.ridx", fname)), os.O_RDWR, 0644)
+	if err != nil {
+		t.Fatalf("Failed to open index file: %v", err)
+	}
+	// Remove 4 bytes
+	stat, err := idxFile.Stat()
+	if err != nil {
+		t.Fatalf("Failed to stat index file: %v", err)
+	}
+	idxFile.Truncate(stat.Size() - 4)
+	idxFile.Close()
+	// Now open it again
+	{
+		f, err := newTable(os.TempDir(), fname, rm, wm, 50, true)
+		// The last item should be missing
+		if _, err = f.Retrieve(0xff); err == nil {
+			t.Errorf("Expected error for missing index")
+		}
+		// The one before should still be there
+		if _, err = f.Retrieve(0xfd); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	}
+}
+
+// TestFreezerRepairDanglingHeadLarge tests that we can recover if very many offsets are removed
+func TestFreezerRepairDanglingHeadLarge(t *testing.T) {
+	t.Parallel()
+	wm, rm := metrics.NewMeter(), metrics.NewMeter()
+	fname := fmt.Sprintf("dangling_headtest-%d", rand.Uint64())
+
+	{ // Fill a table and close it
+		f, err := newTable(os.TempDir(), fname, wm, rm, 50, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Write 15 bytes 255 times
+		for x := byte(0); x < 0xff; x++ {
+			data := getChunk(15, x)
+			f.Append(uint64(x), data)
+		}
+		// The last item should be there
+		if _, err = f.Retrieve(0xfe); err == nil {
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		f.Close()
+	}
+	// open the index
+	idxFile, err := os.OpenFile(filepath.Join(os.TempDir(), fmt.Sprintf("%s.ridx", fname)), os.O_RDWR, 0644)
+	if err != nil {
+		t.Fatalf("Failed to open index file: %v", err)
+	}
+	// Remove everything but the first item, and leave data unaligned
+	// 0-index, 1-index, corrupt-index
+	idxFile.Truncate(indexSize + indexSize + indexSize/2)
+	idxFile.Close()
+	// Now open it again
+	{
+		f, err := newTable(os.TempDir(), fname, rm, wm, 50, true)
+		// The first item should be there
+		if _, err = f.Retrieve(0); err != nil {
+			t.Fatal(err)
+		}
+		// The second item should be missing
+		if _, err = f.Retrieve(1); err == nil {
+			t.Errorf("Expected error for missing index")
+		}
+		// We should now be able to store items again, from item = 1
+		for x := byte(1); x < 0xff; x++ {
+			data := getChunk(15, ^x)
+			f.Append(uint64(x), data)
+		}
+		f.Close()
+	}
+	// And if we open it, we should now be able to read all of them (new values)
+	{
+		f, _ := newTable(os.TempDir(), fname, rm, wm, 50, true)
+		for y := byte(1); y < 255; y++ {
+			exp := getChunk(15, ^y)
+			got, err := f.Retrieve(uint64(y))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, exp) {
+				t.Fatalf("test %d, got \n%x != \n%x", y, got, exp)
+			}
+		}
+	}
+}
+
+// TestSnappyDetection tests that we fail to open a snappy database and vice versa
+func TestSnappyDetection(t *testing.T) {
+	t.Parallel()
+	wm, rm := metrics.NewMeter(), metrics.NewMeter()
+	fname := fmt.Sprintf("snappytest-%d", rand.Uint64())
+	// Open with snappy
+	{
+		f, err := newTable(os.TempDir(), fname, wm, rm, 50, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Write 15 bytes 255 times
+		for x := byte(0); x < 0xff; x++ {
+			data := getChunk(15, x)
+			f.Append(uint64(x), data)
+		}
+		f.Close()
+	}
+	// Open without snappy
+	{
+		f, err := newTable(os.TempDir(), fname, wm, rm, 50, false)
+		if _, err = f.Retrieve(0); err == nil {
+			f.Close()
+			t.Fatalf("expected empty table")
+		}
+	}
+
+	// Open with snappy
+	{
+		f, err := newTable(os.TempDir(), fname, wm, rm, 50, true)
+		// There should be 255 items
+		if _, err = f.Retrieve(0xfe); err != nil {
+			f.Close()
+			t.Fatalf("expected no error, got %v", err)
+		}
+	}
+
+}
+func assertFileSize(f string, size int64) error {
+	stat, err := os.Stat(f)
+	if err != nil {
+		return err
+	}
+	if stat.Size() != size {
+		return fmt.Errorf("error, expected size %d, got %d", size, stat.Size())
+	}
+	return nil
+
+}
+
+// TestFreezerRepairDanglingIndex checks that if the index has more entries than there are data,
+// the index is repaired
+func TestFreezerRepairDanglingIndex(t *testing.T) {
+	t.Parallel()
+	wm, rm := metrics.NewMeter(), metrics.NewMeter()
+	fname := fmt.Sprintf("dangling_indextest-%d", rand.Uint64())
+
+	{ // Fill a table and close it
+		f, err := newTable(os.TempDir(), fname, wm, rm, 50, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Write 15 bytes 9 times : 150 bytes
+		for x := byte(0); x < 9; x++ {
+			data := getChunk(15, x)
+			f.Append(uint64(x), data)
+		}
+		// The last item should be there
+		if _, err = f.Retrieve(8); err != nil {
+			f.Close()
+			t.Fatal(err)
+		}
+		f.Close()
+		// File sizes should be 45, 45, 45 : items[3, 3, 3)
+	}
+	// Crop third file
+	fileToCrop := filepath.Join(os.TempDir(), fmt.Sprintf("%s.2.rdat", fname))
+	// Truncate third file: 45 ,45, 20
+	{
+		if err := assertFileSize(fileToCrop, 45); err != nil {
+			t.Fatal(err)
+		}
+		file, err := os.OpenFile(fileToCrop, os.O_RDWR, 0644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		file.Truncate(20)
+		file.Close()
+	}
+	// Open db it again
+	// It should restore the file(s) to
+	// 45, 45, 15
+	// with 3+3+1 items
+	{
+		f, err := newTable(os.TempDir(), fname, wm, rm, 50, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.items != 7 {
+			f.Close()
+			t.Fatalf("expected %d items, got %d", 7, f.items)
+		}
+		if err := assertFileSize(fileToCrop, 15); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TODO (?)
+// - test that if we remove several head-files, aswell as data last data-file,
+//   the index is truncated accordingly
+// Right now, the freezer would fail on these conditions:
+// 1. have data files d0, d1, d2, d3
+// 2. remove d2,d3
+//
+// However, all 'normal' failure modes arising due to failing to sync() or save a file should be
+// handled already, and the case described above can only (?) happen if an external process/user
+// deletes files from the filesystem.
