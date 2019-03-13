@@ -215,7 +215,7 @@ func (t *freezerTable) repair() error {
 	// Update the item and byte counters and return
 	t.items = uint64(offsetsSize/indexSize - 1) // last index points to the end of the data file
 	t.bytes = uint64(contentSize)
-
+	t.id = lastIndex.filenum
 	t.logger.Debug("Chain freezer table opened", "items", t.items, "size", common.StorageSize(t.bytes))
 	return nil
 }
@@ -228,19 +228,36 @@ func (t *freezerTable) truncate(items uint64) error {
 	}
 	// Something's out of sync, truncate the table's offset index
 	t.logger.Warn("Truncating freezer table", "items", t.items, "limit", items)
-	if err := t.offsets.Truncate(int64(items+1) * 8); err != nil {
+	if err := t.offsets.Truncate(int64(items+1) * indexSize); err != nil {
 		return err
 	}
 	// Calculate the new expected size of the data file and truncate it
-	offset := make([]byte, 8)
-	t.offsets.ReadAt(offset, int64(items)*8)
-	expected := binary.LittleEndian.Uint64(offset)
+	offset := make([]byte, indexSize)
+	if _, err := t.offsets.ReadAt(offset, int64(items*indexSize)); err != nil {
+		return err
+	}
+	var expected index
+	expected.unmarshalBinary(offset)
+	// We might need to truncate back to older files
+	if expected.filenum != t.id {
+		// If already open for reading, force-reopen for writing
+		t.releaseFile(expected.filenum)
+		oldHead, err := t.getFile(expected.filenum, os.O_RDWR|os.O_CREATE|os.O_APPEND)
+		if err != nil {
+			return err
+		}
+		// release current head
+		t.releaseFile(t.id)
+		// set old head
+		t.head = oldHead
+		t.id = expected.filenum
+	}
 
-	if err := t.head.Truncate(int64(expected)); err != nil {
+	if err := t.head.Truncate(int64(expected.offset)); err != nil {
 		return err
 	}
 	// All data files truncated, set internal counters and return
-	t.items, t.bytes = items, expected
+	t.items, t.bytes = items, expected.offset
 	return nil
 }
 
@@ -340,7 +357,7 @@ func (t *freezerTable) Append(item uint64, blob []byte) error {
 	}
 	// Write offsets
 	t.offsets.Write(idx.marshallBinary())
-	t.writeMeter.Mark(int64(bLen + 12)) // 12 = 1 x 12 byte index
+	t.writeMeter.Mark(int64(bLen + indexSize))
 	t.items++
 	return nil
 }
@@ -349,12 +366,12 @@ func (t *freezerTable) Append(item uint64, blob []byte) error {
 func (t *freezerTable) getOffsets(item uint64) (*index, *index, error) {
 
 	var start, end index
-	indexdata := make([]byte, 12)
-	if _, err := t.offsets.ReadAt(indexdata, int64(item*12)); err != nil {
+	indexdata := make([]byte, indexSize)
+	if _, err := t.offsets.ReadAt(indexdata, int64(item*indexSize)); err != nil {
 		return nil, nil, err
 	}
 	start.unmarshalBinary(indexdata)
-	if _, err := t.offsets.ReadAt(indexdata, int64((item+1)*12)); err != nil {
+	if _, err := t.offsets.ReadAt(indexdata, int64((item+1)*indexSize)); err != nil {
 		return nil, nil, err
 	}
 	end.unmarshalBinary(indexdata)
@@ -397,7 +414,7 @@ func (t *freezerTable) Retrieve(item uint64) ([]byte, error) {
 	if _, err := dataFile.ReadAt(blob, int64(start.offset)); err != nil {
 		return nil, err
 	}
-	t.readMeter.Mark(int64(len(blob) + 2*indexSize)) // 16 = 2 x 8 byte offset
+	t.readMeter.Mark(int64(len(blob) + 2*indexSize))
 
 	if !t.noCompression {
 		return snappy.Decode(nil, blob)

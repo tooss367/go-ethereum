@@ -135,7 +135,7 @@ func TestFreezerRepairDanglingHeadLarge(t *testing.T) {
 			f.Append(uint64(x), data)
 		}
 		// The last item should be there
-		if _, err = f.Retrieve(0xfe); err == nil {
+		if _, err = f.Retrieve(f.items - 1); err == nil {
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -253,7 +253,7 @@ func TestFreezerRepairDanglingIndex(t *testing.T) {
 			f.Append(uint64(x), data)
 		}
 		// The last item should be there
-		if _, err = f.Retrieve(8); err != nil {
+		if _, err = f.Retrieve(f.items - 1); err != nil {
 			f.Close()
 			t.Fatal(err)
 		}
@@ -291,6 +291,48 @@ func TestFreezerRepairDanglingIndex(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+}
+
+func TestFreezerTruncate(t *testing.T) {
+
+	t.Parallel()
+	wm, rm := metrics.NewMeter(), metrics.NewMeter()
+	fname := fmt.Sprintf("truncation-%d", rand.Uint64())
+
+	{ // Fill table
+		f, err := newTable(os.TempDir(), fname, rm, wm, 50, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Write 15 bytes 30 times
+		for x := byte(0); x < 30; x++ {
+			data := getChunk(15, x)
+			f.Append(uint64(x), data)
+		}
+		// The last item should be there
+		if _, err = f.Retrieve(f.items - 1); err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+	// Reopen, truncate
+	{
+		f, err := newTable(os.TempDir(), fname, rm, wm, 50, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		f.truncate(10) // 150 bytes
+		if f.items != 10 {
+			t.Fatalf("expected %d items, got %d", 10, f.items)
+		}
+		// 45, 45, 45, 15 -- bytes should be 15
+		if f.bytes != 15 {
+			t.Fatalf("expected %d bytes, got %d", 15, f.bytes)
+		}
+
+	}
+
 }
 
 // TODO (?)
