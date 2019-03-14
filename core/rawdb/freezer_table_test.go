@@ -70,6 +70,50 @@ func TestFreezerBasics(t *testing.T) {
 	}
 }
 
+// TestFreezerBasicsClosing tests same as TestFreezerBasics, but also closes and reopens the freezer between
+// every operation
+func TestFreezerBasicsClosing(t *testing.T) {
+	t.Parallel()
+	// set cutoff at 50 bytes
+	var (
+		fname  = fmt.Sprintf("basics-close-%d", rand.Uint64())
+		m1, m2 = metrics.NewMeter(), metrics.NewMeter()
+		f      *freezerTable
+		err    error
+	)
+	f, err = newTable(os.TempDir(), fname, m1, m2, 50, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Write 15 bytes 255 times, results in 85 files
+	for x := byte(0); x < 255; x++ {
+		data := getChunk(15, x)
+		f.Append(uint64(x), data)
+		f.Close()
+		f, err = newTable(os.TempDir(), fname, m1, m2, 50, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer f.Close()
+
+	for y := byte(0); y < 255; y++ {
+		exp := getChunk(15, y)
+		got, err := f.Retrieve(uint64(y))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, exp) {
+			t.Fatalf("test %d, got \n%x != \n%x", y, got, exp)
+		}
+		f.Close()
+		f, err = newTable(os.TempDir(), fname, m1, m2, 50, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // TestFreezerRepairDanglingHead tests that we can recover if offsets are removed
 func TestFreezerRepairDanglingHead(t *testing.T) {
 	t.Parallel()
