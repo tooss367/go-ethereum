@@ -17,8 +17,10 @@
 package state
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -33,18 +35,24 @@ type DumpAccount struct {
 	Code     string            `json:"code"`
 	Storage  map[string]string `json:"storage"`
 }
-
+type DumpAccountSmall struct {
+	Balance string          `json:"balance"`
+	Root    string          `json:"root"`
+	Code    string          `json:"code"`
+	Address common.Address `json:"address"`
+}
 type Dump struct {
 	Root     string                 `json:"root"`
 	Accounts map[string]DumpAccount `json:"accounts"`
 }
+
+var suffix = []byte{0x6c, 'e', 'x', 'p', 'e', 'r', 'i', 'm', 'e', 'n', 't', 'a', 'l', 0xf5, 0x00, 0x37}
 
 func (self *StateDB) RawDump() Dump {
 	dump := Dump{
 		Root:     fmt.Sprintf("%x", self.trie.Hash()),
 		Accounts: make(map[string]DumpAccount),
 	}
-
 	it := trie.NewIterator(self.trie.NodeIterator(nil))
 	for it.Next() {
 		addr := self.trie.GetKey(it.Key)
@@ -52,23 +60,42 @@ func (self *StateDB) RawDump() Dump {
 		if err := rlp.DecodeBytes(it.Value, &data); err != nil {
 			panic(err)
 		}
-
 		obj := newObject(nil, common.BytesToAddress(addr), data)
 		account := DumpAccount{
-			Balance:  data.Balance.String(),
-			Nonce:    data.Nonce,
-			Root:     common.Bytes2Hex(data.Root[:]),
-			CodeHash: common.Bytes2Hex(data.CodeHash),
-			Code:     common.Bytes2Hex(obj.Code(self.db)),
-			Storage:  make(map[string]string),
-		}
-		storageIt := trie.NewIterator(obj.getTrie(self.db).NodeIterator(nil))
-		for storageIt.Next() {
-			account.Storage[common.Bytes2Hex(self.trie.GetKey(storageIt.Key))] = common.Bytes2Hex(storageIt.Value)
+			Balance: data.Balance.String(),
+			Nonce:   data.Nonce,
+			Root:    common.Bytes2Hex(data.Root[:]),
+			Code:    common.Bytes2Hex(obj.Code(self.db)),
 		}
 		dump.Accounts[common.Bytes2Hex(addr)] = account
 	}
 	return dump
+}
+func (self *StateDB) LineDump() {
+	encoder := json.NewEncoder(os.Stdout)
+	it := trie.NewIterator(self.trie.NodeIterator(nil))
+	for it.Next() {
+		addr := self.trie.GetKey(it.Key)
+		var data Account
+		if err := rlp.DecodeBytes(it.Value, &data); err != nil {
+			panic(err)
+		}
+		if bytes.Equal(data.CodeHash, emptyCodeHash) {
+			continue
+		}
+		obj := newObject(nil, common.BytesToAddress(addr), data)
+		code := obj.Code(self.db)
+		if !bytes.HasSuffix(code, suffix) {
+			continue
+		}
+		account := DumpAccountSmall{
+			Balance: data.Balance.String(),
+			Root:    common.Bytes2Hex(data.Root[:]),
+			Code:    common.Bytes2Hex(code),
+			Address: common.BytesToAddress(addr),
+		}
+		encoder.Encode(account)
+	}
 }
 
 func (self *StateDB) Dump() []byte {

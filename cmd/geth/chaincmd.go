@@ -463,7 +463,8 @@ func dump(ctx *cli.Context) error {
 			if err != nil {
 				utils.Fatalf("could not create new state: %v", err)
 			}
-			fmt.Printf("%s\n", state.Dump())
+			state.LineDump()
+			//fmt.Printf("%s\n", state.Dump())
 		}
 	}
 	chainDb.Close()
