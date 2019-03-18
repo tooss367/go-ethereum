@@ -114,7 +114,7 @@ func TestFreezerBasicsClosing(t *testing.T) {
 	}
 }
 
-// TestFreezerRepairDanglingHead tests that we can recover if offsets are removed
+// TestFreezerRepairDanglingHead tests that we can recover if index are removed
 func TestFreezerRepairDanglingHead(t *testing.T) {
 	t.Parallel()
 	wm, rm := metrics.NewMeter(), metrics.NewMeter()
@@ -162,7 +162,7 @@ func TestFreezerRepairDanglingHead(t *testing.T) {
 	}
 }
 
-// TestFreezerRepairDanglingHeadLarge tests that we can recover if very many offsets are removed
+// TestFreezerRepairDanglingHeadLarge tests that we can recover if very many index are removed
 func TestFreezerRepairDanglingHeadLarge(t *testing.T) {
 	t.Parallel()
 	wm, rm := metrics.NewMeter(), metrics.NewMeter()
@@ -371,8 +371,8 @@ func TestFreezerTruncate(t *testing.T) {
 			t.Fatalf("expected %d items, got %d", 10, f.items)
 		}
 		// 45, 45, 45, 15 -- bytes should be 15
-		if f.bytes != 15 {
-			t.Fatalf("expected %d bytes, got %d", 15, f.bytes)
+		if f.headBytes != 15 {
+			t.Fatalf("expected %d bytes, got %d", 15, f.headBytes)
 		}
 
 	}
