@@ -800,13 +800,8 @@ func (api *PrivateDebugAPI) computeTxEnv(blockHash common.Hash, txIndex int, ree
 		return nil, vm.Context{}, nil, err
 	}
 	// Recompute transactions up to the target index.
-<<<<<<< HEAD
 	signer := types.MakeSigner(api.eth.blockchain.Config(), block.Number())
 	blockCtx := core.NewBlockContext(block.Header(),  api.eth.blockchain, nil)
-=======
-	signer := types.MakeSigner(api.config, block.Number())
-	blockCtx := core.NewBlockContext(block.Header(), api.eth.blockchain, nil)
->>>>>>> 1cc5428c6... tests, core/vm/runtime: formatting
 	for idx, tx := range block.Transactions() {
 		// Assemble the transaction call message and return if the requested offset
 		msg, _ := tx.AsMessage(signer)
