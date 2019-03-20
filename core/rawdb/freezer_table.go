@@ -40,6 +40,8 @@ var (
 	errOutOfBounds = errors.New("out of bounds")
 )
 
+// indexEntry contains the number/id of the file that the data resides in, aswell as the
+// offset within the file to the end of the data
 type indexEntry struct {
 	filenum uint16
 	offset  uint64
