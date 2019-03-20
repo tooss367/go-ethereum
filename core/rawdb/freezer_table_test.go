@@ -395,6 +395,110 @@ func TestFreezerTruncate(t *testing.T) {
 
 }
 
+// TestFreezerRepairFirstFile tests a head file with the very first item only half-written.
+// That will rewind the index, and _should_ truncate the head file
+func TestFreezerRepairFirstFile(t *testing.T) {
+	t.Parallel()
+	wm, rm := metrics.NewMeter(), metrics.NewMeter()
+	fname := fmt.Sprintf("truncationfirst-%d", rand.Uint64())
+	{ // Fill table
+		f, err := newCustomTable(os.TempDir(), fname, rm, wm, 50, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Write 80 bytes, splitting out into two files
+		f.Append(0, getChunk(40, 0xFF))
+		f.Append(1, getChunk(40, 0xEE))
+		// The last item should be there
+		if _, err = f.Retrieve(f.items - 1); err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+	// Truncate the file in half
+	fileToCrop := filepath.Join(os.TempDir(), fmt.Sprintf("%s.1.rdat", fname))
+	{
+		if err := assertFileSize(fileToCrop, 40); err != nil {
+			t.Fatal(err)
+		}
+		file, err := os.OpenFile(fileToCrop, os.O_RDWR, 0644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		file.Truncate(20)
+		file.Close()
+	}
+	// Reopen
+	{
+		f, err := newCustomTable(os.TempDir(), fname, wm, rm, 50, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.items != 1 {
+			f.Close()
+			t.Fatalf("expected %d items, got %d", 0, f.items)
+		}
+		// Write 40 bytes
+		f.Append(1, getChunk(40, 0xDD))
+		f.Close()
+		// Should have been truncated down to zero and then 40 written
+		if err := assertFileSize(fileToCrop, 40); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestFreezerReadAndTruncate tests:
+// - we have a table open
+// - do some reads, so files are open in readonly
+// - truncate so those files are 'removed'
+// - check that we did not keep the rdonly file descriptors
+func TestFreezerReadAndTruncate(t *testing.T) {
+	t.Parallel()
+	wm, rm := metrics.NewMeter(), metrics.NewMeter()
+	fname := fmt.Sprintf("read_truncate-%d", rand.Uint64())
+	{ // Fill table
+		f, err := newCustomTable(os.TempDir(), fname, rm, wm, 50, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Write 15 bytes 30 times
+		for x := byte(0); x < 30; x++ {
+			data := getChunk(15, x)
+			f.Append(uint64(x), data)
+		}
+		// The last item should be there
+		if _, err = f.Retrieve(f.items - 1); err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+	// Reopen and read all files
+	{
+		f, err := newCustomTable(os.TempDir(), fname, wm, rm, 50, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.items != 30 {
+			f.Close()
+			t.Fatalf("expected %d items, got %d", 0, f.items)
+		}
+		for y := byte(0); y < 30; y++ {
+			f.Retrieve(uint64(y))
+		}
+		// Now, truncate back to zero
+		f.truncate(0)
+		// Write the data again
+		for x := byte(0); x < 30; x++ {
+			data := getChunk(15, ^x)
+			if err := f.Append(uint64(x), data); err != nil {
+				t.Fatalf("error %v", err)
+			}
+		}
+		f.Close()
+	}
+}
+
 // TODO (?)
 // - test that if we remove several head-files, aswell as data last data-file,
 //   the index is truncated accordingly

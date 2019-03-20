@@ -196,6 +196,8 @@ func (t *freezerTable) repair() error {
 			newLastIndex.unmarshalBinary(buffer)
 			// We might have slipped back into an earlier head-file here
 			if newLastIndex.filenum != lastIndex.filenum {
+				// release earlier opened file
+				t.releaseFile(lastIndex.filenum)
 				t.head, err = t.getFile(newLastIndex.filenum, os.O_RDWR|os.O_CREATE|os.O_APPEND)
 				if stat, err = t.head.Stat(); err != nil {
 					// TODO, anything more we can do here?
@@ -249,8 +251,9 @@ func (t *freezerTable) truncate(items uint64) error {
 		if err != nil {
 			return err
 		}
-		// release current head
-		t.releaseFile(t.headId)
+		// release any files _after the current head -- both the previous head
+		// and any files which may have been opened for reading
+		t.releaseFilesAfter(expected.filenum)
 		// set old head
 		t.head = newHead
 		t.headId = expected.filenum
@@ -317,6 +320,16 @@ func (t *freezerTable) releaseFile(num uint16) {
 	}
 }
 
+// releaseFilesAfter closes all open files with a higher number
+func (t *freezerTable) releaseFilesAfter(num uint16) {
+	for fnum, f := range t.files {
+		if fnum > num {
+			delete(t.files, fnum)
+			f.Close()
+		}
+	}
+}
+
 // Append injects a binary blob at the end of the freezer table. The item number
 // is a precautionary parameter to ensure data correctness, but the table will
 // reject already existing data.
@@ -351,7 +364,9 @@ func (t *freezerTable) Append(item uint64, blob []byte) error {
 		// Swap out the current head
 		t.head, t.headBytes, t.headId = newHead, 0, nextId
 	}
-	t.head.Write(blob)
+	if _, err := t.head.Write(blob); err != nil {
+		return err
+	}
 	t.headBytes += bLen
 	idx := indexEntry{
 		filenum: t.headId,
