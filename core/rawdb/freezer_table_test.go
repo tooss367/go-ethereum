@@ -1,3 +1,19 @@
+// Copyright 2018 The go-ethereum Authors
+// This file is part of the go-ethereum library.
+//
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
+
 package rawdb
 
 import (
@@ -37,7 +53,7 @@ func print(t *testing.T, f *freezerTable, item uint64) {
 func TestFreezerBasics(t *testing.T) {
 	t.Parallel()
 	// set cutoff at 50 bytes
-	f, err := newTable(os.TempDir(),
+	f, err := newCustomTable(os.TempDir(),
 		fmt.Sprintf("unittest-%d", rand.Uint64()),
 		metrics.NewMeter(), metrics.NewMeter(), 50, true)
 	if err != nil {
@@ -81,7 +97,7 @@ func TestFreezerBasicsClosing(t *testing.T) {
 		f      *freezerTable
 		err    error
 	)
-	f, err = newTable(os.TempDir(), fname, m1, m2, 50, true)
+	f, err = newCustomTable(os.TempDir(), fname, m1, m2, 50, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +106,7 @@ func TestFreezerBasicsClosing(t *testing.T) {
 		data := getChunk(15, x)
 		f.Append(uint64(x), data)
 		f.Close()
-		f, err = newTable(os.TempDir(), fname, m1, m2, 50, true)
+		f, err = newCustomTable(os.TempDir(), fname, m1, m2, 50, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -107,21 +123,21 @@ func TestFreezerBasicsClosing(t *testing.T) {
 			t.Fatalf("test %d, got \n%x != \n%x", y, got, exp)
 		}
 		f.Close()
-		f, err = newTable(os.TempDir(), fname, m1, m2, 50, true)
+		f, err = newCustomTable(os.TempDir(), fname, m1, m2, 50, true)
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
 }
 
-// TestFreezerRepairDanglingHead tests that we can recover if index are removed
+// TestFreezerRepairDanglingHead tests that we can recover if index entries are removed
 func TestFreezerRepairDanglingHead(t *testing.T) {
 	t.Parallel()
 	wm, rm := metrics.NewMeter(), metrics.NewMeter()
 	fname := fmt.Sprintf("dangling_headtest-%d", rand.Uint64())
 
 	{ // Fill table
-		f, err := newTable(os.TempDir(), fname, rm, wm, 50, true)
+		f, err := newCustomTable(os.TempDir(), fname, rm, wm, 50, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -150,10 +166,10 @@ func TestFreezerRepairDanglingHead(t *testing.T) {
 	idxFile.Close()
 	// Now open it again
 	{
-		f, err := newTable(os.TempDir(), fname, rm, wm, 50, true)
+		f, err := newCustomTable(os.TempDir(), fname, rm, wm, 50, true)
 		// The last item should be missing
 		if _, err = f.Retrieve(0xff); err == nil {
-			t.Errorf("Expected error for missing index")
+			t.Errorf("Expected error for missing index entry")
 		}
 		// The one before should still be there
 		if _, err = f.Retrieve(0xfd); err != nil {
@@ -162,14 +178,14 @@ func TestFreezerRepairDanglingHead(t *testing.T) {
 	}
 }
 
-// TestFreezerRepairDanglingHeadLarge tests that we can recover if very many index are removed
+// TestFreezerRepairDanglingHeadLarge tests that we can recover if very many index entries are removed
 func TestFreezerRepairDanglingHeadLarge(t *testing.T) {
 	t.Parallel()
 	wm, rm := metrics.NewMeter(), metrics.NewMeter()
 	fname := fmt.Sprintf("dangling_headtest-%d", rand.Uint64())
 
 	{ // Fill a table and close it
-		f, err := newTable(os.TempDir(), fname, wm, rm, 50, true)
+		f, err := newCustomTable(os.TempDir(), fname, wm, rm, 50, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -192,19 +208,19 @@ func TestFreezerRepairDanglingHeadLarge(t *testing.T) {
 		t.Fatalf("Failed to open index file: %v", err)
 	}
 	// Remove everything but the first item, and leave data unaligned
-	// 0-index, 1-index, corrupt-index
-	idxFile.Truncate(indexSize + indexSize + indexSize/2)
+	// 0-indexEntry, 1-indexEntry, corrupt-indexEntry
+	idxFile.Truncate(indexEntrySize + indexEntrySize + indexEntrySize/2)
 	idxFile.Close()
 	// Now open it again
 	{
-		f, err := newTable(os.TempDir(), fname, rm, wm, 50, true)
+		f, err := newCustomTable(os.TempDir(), fname, rm, wm, 50, true)
 		// The first item should be there
 		if _, err = f.Retrieve(0); err != nil {
 			t.Fatal(err)
 		}
 		// The second item should be missing
 		if _, err = f.Retrieve(1); err == nil {
-			t.Errorf("Expected error for missing index")
+			t.Errorf("Expected error for missing index entry")
 		}
 		// We should now be able to store items again, from item = 1
 		for x := byte(1); x < 0xff; x++ {
@@ -215,7 +231,7 @@ func TestFreezerRepairDanglingHeadLarge(t *testing.T) {
 	}
 	// And if we open it, we should now be able to read all of them (new values)
 	{
-		f, _ := newTable(os.TempDir(), fname, rm, wm, 50, true)
+		f, _ := newCustomTable(os.TempDir(), fname, rm, wm, 50, true)
 		for y := byte(1); y < 255; y++ {
 			exp := getChunk(15, ^y)
 			got, err := f.Retrieve(uint64(y))
@@ -236,7 +252,7 @@ func TestSnappyDetection(t *testing.T) {
 	fname := fmt.Sprintf("snappytest-%d", rand.Uint64())
 	// Open with snappy
 	{
-		f, err := newTable(os.TempDir(), fname, wm, rm, 50, true)
+		f, err := newCustomTable(os.TempDir(), fname, wm, rm, 50, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -249,7 +265,7 @@ func TestSnappyDetection(t *testing.T) {
 	}
 	// Open without snappy
 	{
-		f, err := newTable(os.TempDir(), fname, wm, rm, 50, false)
+		f, err := newCustomTable(os.TempDir(), fname, wm, rm, 50, false)
 		if _, err = f.Retrieve(0); err == nil {
 			f.Close()
 			t.Fatalf("expected empty table")
@@ -258,7 +274,7 @@ func TestSnappyDetection(t *testing.T) {
 
 	// Open with snappy
 	{
-		f, err := newTable(os.TempDir(), fname, wm, rm, 50, true)
+		f, err := newCustomTable(os.TempDir(), fname, wm, rm, 50, true)
 		// There should be 255 items
 		if _, err = f.Retrieve(0xfe); err != nil {
 			f.Close()
@@ -287,7 +303,7 @@ func TestFreezerRepairDanglingIndex(t *testing.T) {
 	fname := fmt.Sprintf("dangling_indextest-%d", rand.Uint64())
 
 	{ // Fill a table and close it
-		f, err := newTable(os.TempDir(), fname, wm, rm, 50, true)
+		f, err := newCustomTable(os.TempDir(), fname, wm, rm, 50, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -323,7 +339,7 @@ func TestFreezerRepairDanglingIndex(t *testing.T) {
 	// 45, 45, 15
 	// with 3+3+1 items
 	{
-		f, err := newTable(os.TempDir(), fname, wm, rm, 50, true)
+		f, err := newCustomTable(os.TempDir(), fname, wm, rm, 50, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -344,7 +360,7 @@ func TestFreezerTruncate(t *testing.T) {
 	fname := fmt.Sprintf("truncation-%d", rand.Uint64())
 
 	{ // Fill table
-		f, err := newTable(os.TempDir(), fname, rm, wm, 50, true)
+		f, err := newCustomTable(os.TempDir(), fname, rm, wm, 50, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -361,7 +377,7 @@ func TestFreezerTruncate(t *testing.T) {
 	}
 	// Reopen, truncate
 	{
-		f, err := newTable(os.TempDir(), fname, rm, wm, 50, true)
+		f, err := newCustomTable(os.TempDir(), fname, rm, wm, 50, true)
 		if err != nil {
 			t.Fatal(err)
 		}

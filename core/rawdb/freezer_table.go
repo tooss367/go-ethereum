@@ -1,4 +1,4 @@
-// Copyright 2018 The go-ethereum Authors
+// Copyright 2019 The go-ethereum Authors
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -40,30 +40,30 @@ var (
 	errOutOfBounds = errors.New("out of bounds")
 )
 
-type index struct {
+type indexEntry struct {
 	filenum uint16
 	offset  uint64
 }
 
-const indexSize = 12
+const indexEntrySize = 12
 
 // unmarshallBinary deserializes binary b into the rawIndex entry.
-func (i *index) unmarshalBinary(b []byte) error {
+func (i *indexEntry) unmarshalBinary(b []byte) error {
 	i.filenum = binary.BigEndian.Uint16(b[:4])
 	i.offset = binary.BigEndian.Uint64(b[4:12])
 	return nil
 }
 
 // marshallBinary serializes the rawIndex entry into binary.
-func (i *index) marshallBinary() []byte {
-	b := make([]byte, indexSize)
+func (i *indexEntry) marshallBinary() []byte {
+	b := make([]byte, indexEntrySize)
 	binary.BigEndian.PutUint16(b[:4], i.filenum)
 	binary.BigEndian.PutUint64(b[4:12], i.offset)
 	return b
 }
 
 // freezerTable represents a single chained data table within the freezer (e.g. blocks).
-// It consists of a data file (snappy encoded arbitrary data blobs) and an index
+// It consists of a data file (snappy encoded arbitrary data blobs) and an indexEntry
 // file (uncompressed 64 bit indices into the data file).
 type freezerTable struct {
 	noCompression bool   // if true, disables snappy compression. Note: does not work retroactively
@@ -74,7 +74,7 @@ type freezerTable struct {
 	head   *os.File            // File descriptor for the data head of the table
 	files  map[uint16]*os.File // open files
 	headId uint16              // number of the currently active head file
-	index  *os.File            // File descriptor for the index file of the table
+	index  *os.File            // File descriptor for the indexEntry file of the table
 
 	items      uint64        // Number of items stored in the table
 	headBytes  uint64        // Number of bytes written to the head file
@@ -85,15 +85,16 @@ type freezerTable struct {
 	lock   sync.RWMutex // Mutex protecting the data file descriptors
 }
 
-func newDefaultTable(path string, name string, readMeter metrics.Meter, writeMeter metrics.Meter) (*freezerTable, error) {
-	return newTable(path, name, readMeter, writeMeter, 2*1000*1000*1000, false)
+// newTable opens a freezer table with default settings - 2G files and snappy compression
+func newTable(path string, name string, readMeter metrics.Meter, writeMeter metrics.Meter) (*freezerTable, error) {
+	return newCustomTable(path, name, readMeter, writeMeter, 2*1000*1000*1000, false)
 }
 
-// newTable opens a freezer table, creating the data and index files if they are
+// newCustomTable opens a freezer table, creating the data and index files if they are
 // non existent. Both files are truncated to the shortest common length to ensure
 // they don't go out of sync.
-func newTable(path string, name string, readMeter metrics.Meter, writeMeter metrics.Meter, maxFilesize uint64, noCompression bool) (*freezerTable, error) {
-	// Ensure the containing directory exists and open the index file
+func newCustomTable(path string, name string, readMeter metrics.Meter, writeMeter metrics.Meter, maxFilesize uint64, noCompression bool) (*freezerTable, error) {
+	// Ensure the containing directory exists and open the indexEntry file
 	if err := os.MkdirAll(path, 0755); err != nil {
 		return nil, err
 	}
@@ -131,21 +132,21 @@ func newTable(path string, name string, readMeter metrics.Meter, writeMeter metr
 // repair cross checks the head and the index file and truncates them to
 // be in sync with each other after a potential crash / data loss.
 func (t *freezerTable) repair() error {
-	// Create a temporary offset buffer to init files with and read index into
-	offset := make([]byte, indexSize)
+	// Create a temporary offset buffer to init files with and read indexEntry into
+	buffer := make([]byte, indexEntrySize)
 
-	// If we've just created the files, initialize the index with the 0 index
+	// If we've just created the files, initialize the index with the 0 indexEntry
 	stat, err := t.index.Stat()
 	if err != nil {
 		return err
 	}
 	if stat.Size() == 0 {
-		if _, err := t.index.Write(offset); err != nil {
+		if _, err := t.index.Write(buffer); err != nil {
 			return err
 		}
 	}
-	// Ensure the index are a multiple of indexSize bytes
-	if overflow := stat.Size() % indexSize; overflow != 0 {
+	// Ensure the index is a multiple of indexEntrySize bytes
+	if overflow := stat.Size() % indexEntrySize; overflow != 0 {
 		t.index.Truncate(stat.Size() - overflow) // New file can't trigger this path
 	}
 	// Retrieve the file sizes and prepare for truncation
@@ -153,14 +154,15 @@ func (t *freezerTable) repair() error {
 		return err
 	}
 	offsetsSize := stat.Size()
+
 	// Open the head file
 	var (
-		lastIndex   index
+		lastIndex   indexEntry
 		contentSize uint64
 		contentExp  uint64
 	)
-	t.index.ReadAt(offset, offsetsSize-indexSize)
-	lastIndex.unmarshalBinary(offset)
+	t.index.ReadAt(buffer, offsetsSize-indexEntrySize)
+	lastIndex.unmarshalBinary(buffer)
 	t.head, err = t.getFile(lastIndex.filenum, os.O_RDWR|os.O_CREATE|os.O_APPEND)
 	if err != nil {
 		return err
@@ -169,6 +171,7 @@ func (t *freezerTable) repair() error {
 		return err
 	}
 	contentSize = uint64(stat.Size())
+
 	// Keep truncating both files until they come in sync
 	contentExp = lastIndex.offset
 
@@ -184,13 +187,13 @@ func (t *freezerTable) repair() error {
 		// Truncate the index to point within the head file
 		if contentExp > contentSize {
 			t.logger.Warn("Truncating dangling indexes", "indexed", common.StorageSize(contentExp), "stored", common.StorageSize(contentSize))
-			if err := t.index.Truncate(offsetsSize - indexSize); err != nil {
+			if err := t.index.Truncate(offsetsSize - indexEntrySize); err != nil {
 				return err
 			}
-			offsetsSize -= indexSize
-			t.index.ReadAt(offset, offsetsSize-indexSize)
-			var newLastIndex index
-			newLastIndex.unmarshalBinary(offset)
+			offsetsSize -= indexEntrySize
+			t.index.ReadAt(buffer, offsetsSize-indexEntrySize)
+			var newLastIndex indexEntry
+			newLastIndex.unmarshalBinary(buffer)
 			// We might have slipped back into an earlier head-file here
 			if newLastIndex.filenum != lastIndex.filenum {
 				t.head, err = t.getFile(newLastIndex.filenum, os.O_RDWR|os.O_CREATE|os.O_APPEND)
@@ -213,7 +216,7 @@ func (t *freezerTable) repair() error {
 		return err
 	}
 	// Update the item and byte counters and return
-	t.items = uint64(offsetsSize/indexSize - 1) // last index points to the end of the data file
+	t.items = uint64(offsetsSize/indexEntrySize - 1) // last indexEntry points to the end of the data file
 	t.headBytes = uint64(contentSize)
 	t.headId = lastIndex.filenum
 	t.logger.Debug("Chain freezer table opened", "items", t.items, "size", common.StorageSize(t.headBytes))
@@ -228,28 +231,28 @@ func (t *freezerTable) truncate(items uint64) error {
 	}
 	// Something's out of sync, truncate the table's offset index
 	t.logger.Warn("Truncating freezer table", "items", t.items, "limit", items)
-	if err := t.index.Truncate(int64(items+1) * indexSize); err != nil {
+	if err := t.index.Truncate(int64(items+1) * indexEntrySize); err != nil {
 		return err
 	}
 	// Calculate the new expected size of the data file and truncate it
-	offset := make([]byte, indexSize)
-	if _, err := t.index.ReadAt(offset, int64(items*indexSize)); err != nil {
+	buffer := make([]byte, indexEntrySize)
+	if _, err := t.index.ReadAt(buffer, int64(items*indexEntrySize)); err != nil {
 		return err
 	}
-	var expected index
-	expected.unmarshalBinary(offset)
+	var expected indexEntry
+	expected.unmarshalBinary(buffer)
 	// We might need to truncate back to older files
 	if expected.filenum != t.headId {
 		// If already open for reading, force-reopen for writing
 		t.releaseFile(expected.filenum)
-		oldHead, err := t.getFile(expected.filenum, os.O_RDWR|os.O_CREATE|os.O_APPEND)
+		newHead, err := t.getFile(expected.filenum, os.O_RDWR|os.O_CREATE|os.O_APPEND)
 		if err != nil {
 			return err
 		}
 		// release current head
 		t.releaseFile(t.headId)
 		// set old head
-		t.head = oldHead
+		t.head = newHead
 		t.headId = expected.filenum
 	}
 
@@ -314,7 +317,7 @@ func (t *freezerTable) releaseFile(num uint16) {
 	}
 }
 
-// Append injects a binary blob at the end of the freezer table. The item index
+// Append injects a binary blob at the end of the freezer table. The item number
 // is a precautionary parameter to ensure data correctness, but the table will
 // reject already existing data.
 //
@@ -335,7 +338,6 @@ func (t *freezerTable) Append(item uint64, blob []byte) error {
 	}
 	bLen := uint64(len(blob))
 	if t.headBytes+bLen > t.maxFileSize {
-
 		// we need a new file, writing would overflow
 		nextId := t.headId + 1
 		// We open the next file in truncated mode -- if this file already
@@ -351,44 +353,40 @@ func (t *freezerTable) Append(item uint64, blob []byte) error {
 	}
 	t.head.Write(blob)
 	t.headBytes += bLen
-	idx := index{
+	idx := indexEntry{
 		filenum: t.headId,
 		offset:  t.headBytes,
 	}
-	// Write index
+	// Write indexEntry
 	t.index.Write(idx.marshallBinary())
-	t.writeMeter.Mark(int64(bLen + indexSize))
+	t.writeMeter.Mark(int64(bLen + indexEntrySize))
 	t.items++
 	return nil
 }
 
 // getOffsets returns the indexes for the item
-func (t *freezerTable) getOffsets(item uint64) (*index, *index, error) {
-
-	var start, end index
-	indexdata := make([]byte, indexSize)
-	if _, err := t.index.ReadAt(indexdata, int64(item*indexSize)); err != nil {
-		return nil, nil, err
+// returns start, end, filenumber and error
+func (t *freezerTable) getOffsets(item uint64) (uint64, uint64, uint16, error) {
+	var startIdx, endIdx indexEntry
+	buffer := make([]byte, indexEntrySize)
+	if _, err := t.index.ReadAt(buffer, int64(item*indexEntrySize)); err != nil {
+		return 0, 0, 0, err
 	}
-	start.unmarshalBinary(indexdata)
-	if _, err := t.index.ReadAt(indexdata, int64((item+1)*indexSize)); err != nil {
-		return nil, nil, err
+	startIdx.unmarshalBinary(buffer)
+	if _, err := t.index.ReadAt(buffer, int64((item+1)*indexEntrySize)); err != nil {
+		return 0, 0, 0, err
 	}
-	end.unmarshalBinary(indexdata)
-
-	if start.filenum != end.filenum {
+	endIdx.unmarshalBinary(buffer)
+	if startIdx.filenum != endIdx.filenum {
 		// If a piece of data 'crosses' a data-file,
 		// it's actually in one piece on the second data-file.
-		// We return a zero-index for the second file as start
-		start = index{
-			filenum: end.filenum,
-			offset:  0,
-		}
+		// We return a zero-indexEntry for the second file as start
+		return 0, endIdx.offset, endIdx.filenum, nil
 	}
-	return &start, &end, nil
+	return startIdx.offset, endIdx.offset, endIdx.filenum, nil
 }
 
-// Retrieve looks up the data offset of an item with the given index and retrieves
+// Retrieve looks up the data offset of an item with the given number and retrieves
 // the raw binary blob from the data file.
 func (t *freezerTable) Retrieve(item uint64) ([]byte, error) {
 	t.lock.RLock()
@@ -401,20 +399,20 @@ func (t *freezerTable) Retrieve(item uint64) ([]byte, error) {
 	if t.items <= item {
 		return nil, errOutOfBounds
 	}
-	start, end, err := t.getOffsets(item)
+	startOffset, endOffset, filenum, err := t.getOffsets(item)
 	if err != nil {
 		return nil, err
 	}
-	dataFile, err := t.getFile(start.filenum, os.O_RDONLY)
+	dataFile, err := t.getFile(filenum, os.O_RDONLY)
 	if err != nil {
 		return nil, err
 	}
 	// Retrieve the data itself, decompress and return
-	blob := make([]byte, end.offset-start.offset)
-	if _, err := dataFile.ReadAt(blob, int64(start.offset)); err != nil {
+	blob := make([]byte, endOffset-startOffset)
+	if _, err := dataFile.ReadAt(blob, int64(startOffset)); err != nil {
 		return nil, err
 	}
-	t.readMeter.Mark(int64(len(blob) + 2*indexSize))
+	t.readMeter.Mark(int64(len(blob) + 2*indexEntrySize))
 
 	if !t.noCompression {
 		return snappy.Decode(nil, blob)
