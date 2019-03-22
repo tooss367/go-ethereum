@@ -167,7 +167,7 @@ func (t *freezerTable) repair() error {
 	)
 	t.index.ReadAt(buffer, offsetsSize-indexEntrySize)
 	lastIndex.unmarshalBinary(buffer)
-	t.head, err = t.getFileInternal(lastIndex.filenum, os.O_RDWR|os.O_CREATE|os.O_APPEND)
+	t.head, err = t.openFile(lastIndex.filenum, os.O_RDWR|os.O_CREATE|os.O_APPEND)
 	if err != nil {
 		return err
 	}
@@ -202,7 +202,7 @@ func (t *freezerTable) repair() error {
 			if newLastIndex.filenum != lastIndex.filenum {
 				// release earlier opened file
 				t.releaseFile(lastIndex.filenum)
-				t.head, err = t.getFileInternal(newLastIndex.filenum, os.O_RDWR|os.O_CREATE|os.O_APPEND)
+				t.head, err = t.openFile(newLastIndex.filenum, os.O_RDWR|os.O_CREATE|os.O_APPEND)
 				if stat, err = t.head.Stat(); err != nil {
 					// TODO, anything more we can do here?
 					// A data file has gone missing...
@@ -225,8 +225,31 @@ func (t *freezerTable) repair() error {
 	t.items = uint64(offsetsSize/indexEntrySize - 1) // last indexEntry points to the end of the data file
 	t.headBytes = uint32(contentSize)
 	t.headId = lastIndex.filenum
+
+	// Close opened files and preopen all files
+	if err := t.preopen(); err != nil {
+		return err
+	}
 	t.logger.Debug("Chain freezer table opened", "items", t.items, "size", common.StorageSize(t.headBytes))
 	return nil
+}
+
+// preopen opens all files that the freezer will need. This method should be called from an init-context,
+// since it assumes that it doesn't have to bother with locking
+// The rationale for doing preopen is to not have to do it from within Retrieve, thus not needing to ever
+// obtain a write-lock within Retrieve.
+func (t *freezerTable) preopen() (err error) {
+	// The repair might have already opened (some) files
+	t.releaseFilesAfter(0)
+	// Open all except head in RDONLY
+	for i := uint32(0); i < t.headId; i++ {
+		if _, err = t.openFile(i, os.O_RDONLY); err != nil {
+			return err
+		}
+	}
+	// Open head in read/write
+	t.head, err = t.openFile(t.headId, os.O_RDWR|os.O_CREATE|os.O_APPEND)
+	return err
 }
 
 // truncate discards any recent data above the provided threashold number.
@@ -253,7 +276,7 @@ func (t *freezerTable) truncate(items uint64) error {
 	if expected.filenum != t.headId {
 		// If already open for reading, force-reopen for writing
 		t.releaseFile(expected.filenum)
-		newHead, err := t.getFileInternal(expected.filenum, os.O_RDWR|os.O_CREATE|os.O_APPEND)
+		newHead, err := t.openFile(expected.filenum, os.O_RDWR|os.O_CREATE|os.O_APPEND)
 		if err != nil {
 			return err
 		}
@@ -298,25 +321,8 @@ func (t *freezerTable) Close() error {
 	return nil
 }
 
-// getFile either returns an existing handle, or opens the file with the
-// given flags (and stores the handle for later)
-// This method assumes that caller has readlock on t.lock
-func (t *freezerTable) getFile(num uint32, flag int) (*os.File, error) {
-	if f, exist := t.files[num]; exist {
-		return f, nil
-	}
-	// Release rlock, to obtain wlock
-	t.lock.RUnlock()
-	t.lock.Lock()
-	f, e := t.getFileInternal(num, flag)
-	// Set the rlock back again
-	t.lock.Unlock()
-	t.lock.RLock()
-	return f, e
-}
-
-// getFileInternal assumes that the write-lock is held by the caller
-func (t *freezerTable) getFileInternal(num uint32, flag int) (f *os.File, err error) {
+// openFile assumes that the write-lock is held by the caller
+func (t *freezerTable) openFile(num uint32, flag int) (f *os.File, err error) {
 	var exist bool
 	if f, exist = t.files[num]; !exist {
 		var name string
@@ -360,6 +366,8 @@ func (t *freezerTable) releaseFilesAfter(num uint32) {
 // Note, this method will *not* flush any data to disk so be sure to explicitly
 // fsync before irreversibly deleting data from the database.
 func (t *freezerTable) Append(item uint64, blob []byte) error {
+	// Read lock prevents competition with truncate
+	t.lock.RLock()
 	// Ensure the table is still accessible
 	if t.index == nil || t.head == nil {
 		return errClosed
@@ -373,25 +381,33 @@ func (t *freezerTable) Append(item uint64, blob []byte) error {
 		blob = snappy.Encode(nil, blob)
 	}
 	bLen := uint32(len(blob))
-	if t.headBytes+bLen > t.maxFileSize {
-		t.lock.Lock()
+	if t.headBytes+bLen < bLen ||
+		t.headBytes+bLen > t.maxFileSize {
 		// we need a new file, writing would overflow
+		t.lock.RUnlock()
+		t.lock.Lock()
 		nextId := atomic.LoadUint32(&t.headId) + 1
 		// We open the next file in truncated mode -- if this file already
 		// exists, we need to start over from scratch on it
-		newHead, err := t.getFileInternal(nextId, os.O_RDWR|os.O_CREATE|os.O_TRUNC)
+		newHead, err := t.openFile(nextId, os.O_RDWR|os.O_CREATE|os.O_TRUNC)
 		if err != nil {
 			t.lock.Unlock()
 			return err
 		}
-		// Close old file. It will be reopened in RDONLY mode if needed
+		// Close old file, and reopen in RDONLY mode
 		t.releaseFile(t.headId)
+		t.openFile(t.headId, os.O_RDONLY)
+
 		// Swap out the current head
 		t.head = newHead
 		atomic.StoreUint32(&t.headBytes, 0)
 		atomic.StoreUint32(&t.headId, nextId)
 		t.lock.Unlock()
+		t.lock.RLock()
 	}
+
+	defer t.lock.RUnlock()
+
 	if _, err := t.head.Write(blob); err != nil {
 		return err
 	}
@@ -445,9 +461,9 @@ func (t *freezerTable) Retrieve(item uint64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	dataFile, err := t.getFile(filenum, os.O_RDONLY)
-	if err != nil {
-		return nil, err
+	dataFile, exist := t.files[filenum]
+	if !exist {
+		return nil, fmt.Errorf("missing data file %d", filenum)
 	}
 	// Retrieve the data itself, decompress and return
 	blob := make([]byte, endOffset-startOffset)
