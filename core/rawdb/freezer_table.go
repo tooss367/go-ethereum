@@ -240,7 +240,7 @@ func (t *freezerTable) repair() error {
 // obtain a write-lock within Retrieve.
 func (t *freezerTable) preopen() (err error) {
 	// The repair might have already opened (some) files
-	t.releaseFilesAfter(0)
+	t.releaseFilesAfter(0, false)
 	// Open all except head in RDONLY
 	for i := uint32(0); i < t.headId; i++ {
 		if _, err = t.openFile(i, os.O_RDONLY); err != nil {
@@ -282,7 +282,7 @@ func (t *freezerTable) truncate(items uint64) error {
 		}
 		// release any files _after the current head -- both the previous head
 		// and any files which may have been opened for reading
-		t.releaseFilesAfter(expected.filenum)
+		t.releaseFilesAfter(expected.filenum, true)
 		// set back the historic head
 		t.head = newHead
 		atomic.StoreUint32(&t.headId, expected.filenum)
@@ -349,12 +349,15 @@ func (t *freezerTable) releaseFile(num uint32) {
 	}
 }
 
-// releaseFilesAfter closes all open files with a higher number
-func (t *freezerTable) releaseFilesAfter(num uint32) {
+// releaseFilesAfter closes all open files with a higher number, and optionally also deletes the files
+func (t *freezerTable) releaseFilesAfter(num uint32, remove bool) {
 	for fnum, f := range t.files {
 		if fnum > num {
 			delete(t.files, fnum)
 			f.Close()
+			if remove {
+				os.Remove(f.Name())
+			}
 		}
 	}
 }
