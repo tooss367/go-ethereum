@@ -1214,6 +1214,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, []
 		bc.reportBlock(block, nil, err)
 		return it.index, events, coalescedLogs, err
 	}
+	var statedb *state.StateDB
 	// No validation errors for the first block (or chain prefix skipped)
 	for ; block != nil && err == nil; block, err = it.next() {
 		// If the chain is terminating, stop processing blocks
@@ -1233,20 +1234,25 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, []
 		if parent == nil {
 			parent = bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
 		}
-		state, err := state.New(parent.Root, bc.stateCache)
-		if err != nil {
-			return it.index, events, coalescedLogs, err
+
+		if statedb == nil || block.NumberU64()%10 == 0 {
+			statedb, err = state.New(parent.Root, bc.stateCache)
+			if err != nil {
+				return it.index, events, coalescedLogs, err
+			}
+		}else{
+			statedb.Reuse()
 		}
 		// Process block using the parent state as reference point.
 		t0 := time.Now()
-		receipts, logs, usedGas, err := bc.processor.Process(block, state, bc.vmConfig)
+		receipts, logs, usedGas, err := bc.processor.Process(block, statedb, bc.vmConfig)
 		t1 := time.Now()
 		if err != nil {
 			bc.reportBlock(block, receipts, err)
 			return it.index, events, coalescedLogs, err
 		}
 		// Validate the state using the default validator
-		if err := bc.Validator().ValidateState(block, state, receipts, usedGas); err != nil {
+		if err := bc.Validator().ValidateState(block, statedb, receipts, usedGas); err != nil {
 			bc.reportBlock(block, receipts, err)
 			return it.index, events, coalescedLogs, err
 		}
@@ -1254,27 +1260,27 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, []
 		proctime := time.Since(start)
 
 		// Write the block to the chain and get the status.
-		status, err := bc.writeBlockWithState(block, receipts, state)
+		status, err := bc.writeBlockWithState(block, receipts, statedb)
 		t3 := time.Now()
 		if err != nil {
 			return it.index, events, coalescedLogs, err
 		}
 
 		// Update the metrics subsystem with all the measurements
-		accountReadTimer.Update(state.AccountReads)
-		accountHashTimer.Update(state.AccountHashes)
-		accountUpdateTimer.Update(state.AccountUpdates)
-		accountCommitTimer.Update(state.AccountCommits)
+		accountReadTimer.Update(statedb.AccountReads)
+		accountHashTimer.Update(statedb.AccountHashes)
+		accountUpdateTimer.Update(statedb.AccountUpdates)
+		accountCommitTimer.Update(statedb.AccountCommits)
 
-		storageReadTimer.Update(state.StorageReads)
-		storageHashTimer.Update(state.StorageHashes)
-		storageUpdateTimer.Update(state.StorageUpdates)
-		storageCommitTimer.Update(state.StorageCommits)
+		storageReadTimer.Update(statedb.StorageReads)
+		storageHashTimer.Update(statedb.StorageHashes)
+		storageUpdateTimer.Update(statedb.StorageUpdates)
+		storageCommitTimer.Update(statedb.StorageCommits)
 
 		blockInsertTimer.UpdateSince(start)
-		blockExecutionTimer.Update(t1.Sub(t0) - state.AccountReads - state.AccountUpdates - state.StorageReads - state.StorageUpdates)
-		blockValidationTimer.Update(t2.Sub(t1) - state.AccountHashes - state.StorageHashes)
-		blockWriteTimer.Update(t3.Sub(t2) - state.AccountCommits - state.StorageCommits)
+		blockExecutionTimer.Update(t1.Sub(t0) - statedb.AccountReads - statedb.AccountUpdates - statedb.StorageReads - statedb.StorageUpdates)
+		blockValidationTimer.Update(t2.Sub(t1) - statedb.AccountHashes - statedb.StorageHashes)
+		blockWriteTimer.Update(t3.Sub(t2) - statedb.AccountCommits - statedb.StorageCommits)
 
 		switch status {
 		case CanonStatTy:

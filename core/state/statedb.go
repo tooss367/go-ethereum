@@ -117,6 +117,22 @@ func New(root common.Hash, db Database) (*StateDB, error) {
 	}, nil
 }
 
+func (self *StateDB) Reuse() {
+	self.logs = make(map[common.Hash][]*types.Log)
+	self.preimages = make(map[common.Hash][]byte)
+	self.AccountReads = 0
+	self.AccountHashes = 0
+	self.AccountUpdates = 0
+	self.AccountCommits = 0
+	self.StorageReads = 0
+	self.StorageHashes = 0
+	self.StorageUpdates = 0
+	self.StorageCommits = 0
+	self.refund = 0
+	self.logSize = 0
+
+}
+
 // setError remembers the first non-nil error it is called with.
 func (self *StateDB) setError(err error) {
 	if self.dbErr == nil {
@@ -664,6 +680,13 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (root common.Hash, err error) 
 			// If the object has been removed, don't bother syncing it
 			// and just mark it for deletion in the trie.
 			s.deleteStateObject(stateObject)
+			// If we want to reuse the stateObjects from this statedb
+			// for the next block, we need to
+			// - clean out the deleted ones,
+			// - leave the clean ones,
+			// - leave the dirty ones, after marking them non-dirty
+			delete(s.stateObjects, addr)
+
 		case isDirty:
 			// Write any contract code associated with the state object
 			if stateObject.code != nil && stateObject.dirtyCode {
