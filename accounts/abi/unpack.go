@@ -258,7 +258,7 @@ func lengthPrefixPointsTo(index int, output []byte) (start int, length int, err 
 		return 0, 0, fmt.Errorf("abi: cannot marshal in to go slice: offset %v would go over slice boundary (len=%v)", bigOffsetEnd, outputLength)
 	}
 
-	if bigOffsetEnd.BitLen() > 63 {
+	if !bigOffsetEnd.IsInt64() {
 		return 0, 0, fmt.Errorf("abi offset larger than int64: %v", bigOffsetEnd)
 	}
 
@@ -268,7 +268,7 @@ func lengthPrefixPointsTo(index int, output []byte) (start int, length int, err 
 	totalSize := big.NewInt(0)
 	totalSize.Add(totalSize, bigOffsetEnd)
 	totalSize.Add(totalSize, lengthBig)
-	if totalSize.BitLen() > 63 {
+	if !totalSize.IsInt64() {
 		return 0, 0, fmt.Errorf("abi length larger than int64: %v", totalSize)
 	}
 
@@ -288,7 +288,7 @@ func tuplePointsTo(index int, output []byte) (start int, err error) {
 	if offset.Cmp(big.NewInt(int64(len(output)))) > 0 {
 		return 0, fmt.Errorf("abi: cannot marshal in to go slice: offset %v would go over slice boundary (len=%v)", offset, outputLen)
 	}
-	if offset.BitLen() > 63 {
+	if !offset.IsInt64() {
 		return 0, fmt.Errorf("abi offset larger than int64: %v", offset)
 	}
 	return int(offset.Uint64()), nil

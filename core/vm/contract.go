@@ -85,7 +85,7 @@ func (c *Contract) validJumpdest(dest *big.Int) bool {
 	udest := dest.Uint64()
 	// PC cannot go beyond len(code) and certainly can't be bigger than 63bits.
 	// Don't bother checking for JUMPDEST in that case.
-	if dest.BitLen() >= 63 || udest >= uint64(len(c.Code)) {
+	if !dest.IsInt64() || udest >= uint64(len(c.Code)) {
 		return false
 	}
 	// Only JUMPDESTs allowed for destinations

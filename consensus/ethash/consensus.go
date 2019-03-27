@@ -241,21 +241,20 @@ func (ethash *Ethash) verifyHeader(chain consensus.ChainReader, header, parent *
 	if uint64(len(header.Extra)) > params.MaximumExtraDataSize {
 		return fmt.Errorf("extra-data too long: %d > %d", len(header.Extra), params.MaximumExtraDataSize)
 	}
-	// Verify the header's timestamp
-	if uncle {
-		if header.Time.Cmp(math.MaxBig256) > 0 {
-			return errLargeBlockTime
-		}
-	} else {
-		if header.Time.Cmp(big.NewInt(time.Now().Add(allowedFutureBlockTime).Unix())) > 0 {
-			return consensus.ErrFutureBlock
-		}
+	// Do like parity does
+	tStamp := header.Time.Uint64()
+	if !header.Time.IsUint64() {
+		tStamp = math.MaxUint64
+	}
+	if !uncle && tStamp > uint64(time.Now().Unix()+int64(allowedFutureBlockTime)) {
+		// Uncles are excempt from the 15 minute rule
+		return consensus.ErrFutureBlock
 	}
 	if header.Time.Cmp(parent.Time) <= 0 {
 		return errZeroBlockTime
 	}
 	// Verify the block's difficulty based in it's timestamp and parent's difficulty
-	expected := ethash.CalcDifficulty(chain, header.Time.Uint64(), parent)
+	expected := ethash.CalcDifficulty(chain, tStamp, parent)
 
 	if expected.Cmp(header.Difficulty) != 0 {
 		return fmt.Errorf("invalid difficulty: have %v, want %v", header.Difficulty, expected)

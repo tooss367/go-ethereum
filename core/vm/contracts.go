@@ -217,7 +217,7 @@ func (c *bigModExp) RequiredGas(input []byte) uint64 {
 	gas.Mul(gas, math.BigMax(adjExpLen, big1))
 	gas.Div(gas, new(big.Int).SetUint64(params.ModExpQuadCoeffDiv))
 
-	if gas.BitLen() > 64 {
+	if !gas.IsUint64() {
 		return math.MaxUint64
 	}
 	return gas.Uint64()
