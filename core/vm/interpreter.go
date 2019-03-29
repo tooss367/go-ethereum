@@ -189,6 +189,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 	// the execution of one of the operations or until the done flag is set by the
 	// parent context.
 	for atomic.LoadInt32(&in.evm.abort) == 0 {
+		res = nil
 		if in.cfg.Debug {
 			// Capture pre-execution values for tracing.
 			logged, pcCopy, gasCopy = false, pc, contract.Gas
@@ -207,6 +208,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		} else if sLen > operation.maxStack {
 			return nil, fmt.Errorf("stack limit reached %d (%d)", sLen, operation.maxStack)
 		}
+
 		// If the operation is valid, enforce and write restrictions
 		if in.readOnly && in.evm.chainRules.IsByzantium {
 			// If the interpreter is operating in readonly mode, make sure no
@@ -223,63 +225,89 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			return nil, ErrOutOfGas
 		}
 
-		var memorySize uint64
-		// calculate the new memory size and expand the memory to fit
-		// the operation
-		// Memory check needs to be done prior to evaluating the dynamic gas portion,
-		// to detect calculation overflows
-		if operation.memorySize != nil {
-			memSize, overflow := operation.memorySize(stack)
-			if overflow {
-				return nil, errGasUintOverflow
+		if operation.stackExec != nil {
+			// EXP is a stackExec with dynamic gas
+			if operation.dynamicGas != nil {
+				cost, err = operation.dynamicGas(in.gasTable, in.evm, contract, stack, mem, 0)
+				if err != nil || !contract.UseGas(cost) {
+					return nil, ErrOutOfGas
+				}
 			}
-			// memory is expanded in words of 32 bytes. Gas
-			// is also calculated in words.
-			if memorySize, overflow = math.SafeMul(toWordSize(memSize), 32); overflow {
-				return nil, errGasUintOverflow
+			if in.cfg.Debug {
+				in.cfg.Tracer.CaptureState(in.evm, pc, op, gasCopy, cost, mem, stack, contract, in.evm.depth, err)
+				logged = true
 			}
-		}
-		// Dynamic portion of gas
-		// consume the gas and return an error if not enough gas is available.
-		// cost is explicitly set so that the capture state defer method can get the proper cost
-		if operation.dynamicGas != nil {
-			cost, err = operation.dynamicGas(in.gasTable, in.evm, contract, stack, mem, memorySize)
-			if err != nil || !contract.UseGas(cost) {
-				return nil, ErrOutOfGas
+
+			operation.stackExec(stack, in.intPool)
+
+		} else if operation.blockExec != nil {
+			if in.cfg.Debug {
+				in.cfg.Tracer.CaptureState(in.evm, pc, op, gasCopy, cost, mem, stack, contract, in.evm.depth, err)
+				logged = true
 			}
-		}
-		if memorySize > 0 {
-			mem.Resize(memorySize)
+			operation.blockExec(stack, in.evm.BlockContext, in.intPool)
+		} else {
+			var memorySize uint64
+			// calculate the new memory size and expand the memory to fit
+			// the operation
+			// Memory check needs to be done prior to evaluating the dynamic gas portion,
+			// to detect calculation overflows
+			if operation.memorySize != nil {
+				memSize, overflow := operation.memorySize(stack)
+				if overflow {
+					return nil, errGasUintOverflow
+				}
+				// memory is expanded in words of 32 bytes. Gas
+				// is also calculated in words.
+				if memorySize, overflow = math.SafeMul(toWordSize(memSize), 32); overflow {
+					return nil, errGasUintOverflow
+				}
+			}
+			// Dynamic portion of gas
+			// consume the gas and return an error if not enough gas is available.
+			// cost is explicitly set so that the capture state defer method can get the proper cost
+			if operation.dynamicGas != nil {
+				cost, err = operation.dynamicGas(in.gasTable, in.evm, contract, stack, mem, memorySize)
+				if err != nil || !contract.UseGas(cost) {
+					return nil, ErrOutOfGas
+				}
+			}
+			if memorySize > 0 {
+				mem.Resize(memorySize)
+			}
+
+			if in.cfg.Debug {
+				in.cfg.Tracer.CaptureState(in.evm, pc, op, gasCopy, cost, mem, stack, contract, in.evm.depth, err)
+				logged = true
+			}
+			if operation.noErrorExec != nil {
+				operation.noErrorExec(&pc, in, contract, mem, stack)
+			} else {
+				// execute the operation
+				res, err = operation.execute(&pc, in, contract, mem, stack)
+				// verifyPool is a build flag. Pool verification makes sure the integrity
+				// of the integer pool by comparing values to a default value.
+				if verifyPool {
+					verifyIntegerPool(in.intPool)
+				}
+				// if the operation clears the return data (e.g. it has returning data)
+				// set the last return to the result of the operation.
+				if operation.returns {
+					in.returnData = res
+				}
+				if err != nil {
+					return nil, err
+				}
+				if operation.reverts {
+					return res, errExecutionReverted
+				}
+			}
 		}
 
-		if in.cfg.Debug {
-			in.cfg.Tracer.CaptureState(in.evm, pc, op, gasCopy, cost, mem, stack, contract, in.evm.depth, err)
-			logged = true
-		}
-
-		// execute the operation
-		res, err = operation.execute(&pc, in, contract, mem, stack)
-		// verifyPool is a build flag. Pool verification makes sure the integrity
-		// of the integer pool by comparing values to a default value.
-		if verifyPool {
-			verifyIntegerPool(in.intPool)
-		}
-		// if the operation clears the return data (e.g. it has returning data)
-		// set the last return to the result of the operation.
-		if operation.returns {
-			in.returnData = res
-		}
-
-		switch {
-		case err != nil:
-			return nil, err
-		case operation.reverts:
-			return res, errExecutionReverted
-		case operation.halts:
+		if operation.halts{
 			return res, nil
-		case !operation.jumps:
-			pc++
 		}
+		pc++
 	}
 	return nil, nil
 }

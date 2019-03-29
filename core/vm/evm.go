@@ -95,6 +95,10 @@ type BlockContext struct {
 	BlockNumber *big.Int       // Provides information for NUMBER
 	Time        *big.Int       // Provides information for TIME
 	Difficulty  *big.Int       // Provides information for DIFFICULTY
+
+	IsConstantinople bool
+	IsByzantium      bool
+	IsHomestead      bool
 }
 
 // EVM is the Ethereum Virtual Machine base object and provides
