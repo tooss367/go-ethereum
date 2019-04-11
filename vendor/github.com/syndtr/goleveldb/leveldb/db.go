@@ -792,6 +792,55 @@ func nilIfNotFound(err error) error {
 	return err
 }
 
+func (db *DB) hasAny(keys [][]byte, seq uint64, ro *opt.ReadOptions) (missing [][]byte) {
+	// Generate the internal keys
+	var ikeys = make([]internalKey, len(keys))
+	for i, key := range keys {
+		ikeys[i] = makeInternalKey(nil, key, seq, keyTypeSeek)
+	}
+	// Check memory tables
+	em, fm := db.getMems()
+	for _, m := range [...]*memDB{em, fm} {
+		if m == nil {
+			continue
+		}
+		var missingIkeys []internalKey
+		for _, ikey := range ikeys {
+			ok, _, me := memGet(m.DB, ikey, db.s.icmp)
+			if ok && me == nil {
+				continue
+			}
+			// Not found
+			missingIkeys = append(missingIkeys, ikey)
+		}
+		ikeys = missingIkeys
+		m.decref()
+	}
+	if len(ikeys) == 0 {
+		return
+	}
+	// Check disk tables
+	v := db.s.version()
+	var (
+		cSched bool
+		err    error
+	)
+	for _, ikey := range ikeys {
+		_, cSched, err = v.get(nil, ikey, ro, true)
+		if err == nil {
+			continue
+		}
+		// Not found
+		missing = append(missing, ikey.ukey())
+	}
+	v.release()
+	if cSched {
+		// Trigger table compaction.
+		db.compTrigger(db.tcompCmdC)
+	}
+	return missing
+}
+
 func (db *DB) has(auxm *memdb.DB, auxt tFiles, key []byte, seq uint64, ro *opt.ReadOptions) (ret bool, err error) {
 	ikey := makeInternalKey(nil, key, seq, keyTypeSeek)
 
@@ -843,6 +892,17 @@ func (db *DB) Get(key []byte, ro *opt.ReadOptions) (value []byte, err error) {
 	se := db.acquireSnapshot()
 	defer db.releaseSnapshot(se)
 	return db.get(nil, nil, key, se.seq, ro)
+}
+
+func (db *DB) HasAny(keys [][]byte, ro *opt.ReadOptions) (missing [][]byte, err error) {
+	err = db.ok()
+	if err != nil {
+		return
+	}
+	se := db.acquireSnapshot()
+	defer db.releaseSnapshot(se)
+	missing = db.hasAny(keys, se.seq, ro)
+	return
 }
 
 // Has returns true if the DB does contains the given key.

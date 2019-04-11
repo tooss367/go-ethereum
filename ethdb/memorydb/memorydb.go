@@ -83,6 +83,22 @@ func (db *Database) Has(key []byte) (bool, error) {
 	return ok, nil
 }
 
+func (db *Database) HasAny(keys [][]byte) ([][]byte, error) {
+	db.lock.RLock()
+	defer db.lock.RUnlock()
+
+	var missing [][]byte
+	if db.db == nil {
+		return missing, errMemorydbClosed
+	}
+	for _, key := range keys {
+		if _, ok := db.db[string(key)]; !ok {
+			missing = append(missing, key)
+		}
+	}
+	return missing, nil
+}
+
 // Get retrieves the given key if it's present in the key-value store.
 func (db *Database) Get(key []byte) ([]byte, error) {
 	db.lock.RLock()

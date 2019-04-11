@@ -492,3 +492,13 @@ func (db *readTraceDB) Has(key []byte) (bool, error) {
 	_, err := db.Get(key)
 	return err == nil, nil
 }
+
+func (db *readTraceDB) HasAny(keys [][]byte) ([][]byte, error) {
+	var missing [][]byte
+	for _, key := range keys {
+		if _, ok := db.reads[string(key)]; !ok {
+			missing = append(missing, key)
+		}
+	}
+	return missing, nil
+}

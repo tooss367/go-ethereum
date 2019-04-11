@@ -144,6 +144,10 @@ func (db *Database) Has(key []byte) (bool, error) {
 	return db.db.Has(key, nil)
 }
 
+func (db *Database) HasAny(keys [][]byte) ([][]byte, error) {
+	return db.db.HasAny(keys, nil)
+}
+
 // Get retrieves the given key if it's present in the key-value store.
 func (db *Database) Get(key []byte) ([]byte, error) {
 	dat, err := db.db.Get(key, nil)

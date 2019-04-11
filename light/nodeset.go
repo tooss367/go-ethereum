@@ -86,6 +86,19 @@ func (db *NodeSet) Has(key []byte) (bool, error) {
 	return err == nil, nil
 }
 
+func (db *NodeSet) HasAny(keys [][]byte) ([][]byte, error) {
+	db.lock.RLock()
+	defer db.lock.RUnlock()
+
+	var missing [][]byte
+	for _, key := range keys {
+		if _, ok := db.nodes[string(key)]; !ok {
+			missing = append(missing, key)
+		}
+	}
+	return missing, nil
+}
+
 // KeyCount returns the number of nodes in the set
 func (db *NodeSet) KeyCount() int {
 	db.lock.RLock()

@@ -17,6 +17,7 @@
 package rawdb
 
 import (
+	"errors"
 	"github.com/ethereum/go-ethereum/ethdb"
 )
 
@@ -43,6 +44,10 @@ func (t *table) Close() error {
 // Has retrieves if a prefixed version of a key is present in the database.
 func (t *table) Has(key []byte) (bool, error) {
 	return t.db.Has(append([]byte(t.prefix), key...))
+}
+
+func (t *table) HasAny(keys [][]byte) ([][]byte, error) {
+	return nil, errors.New("HasAny not implemented")
 }
 
 // Get retrieves the given prefixed key if it's present in the database.

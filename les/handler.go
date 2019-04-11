@@ -668,10 +668,14 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 					p.Log().Warn("Failed to retrieve account for code", "block", header.Number, "hash", header.Hash(), "account", common.BytesToHash(req.AccKey), "err", err)
 					continue
 				}
-				code, err := triedb.Node(common.BytesToHash(account.CodeHash))
-				if err != nil {
-					p.Log().Warn("Failed to retrieve account code", "block", header.Number, "hash", header.Hash(), "account", common.BytesToHash(req.AccKey), "codehash", common.BytesToHash(account.CodeHash), "err", err)
-					continue
+				if !bytes.Equal(account.CodeHash, emptyCodeHash) {
+					code, err := triedb.Node(common.BytesToHash(account.CodeHash))
+					if err != nil {
+						p.Log().Warn("Failed to retrieve account code", "block", header.Number, "hash", header.Hash(), "account", common.BytesToHash(req.AccKey), "codehash", common.BytesToHash(account.CodeHash), "err", err)
+						continue
+					}
+				}else{
+					code = []byte{}
 				}
 				// Accumulate the code and abort if enough data was retrieved
 				data = append(data, code)

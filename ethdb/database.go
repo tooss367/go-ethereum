@@ -24,6 +24,10 @@ type Reader interface {
 	// Has retrieves if a key is present in the key-value data store.
 	Has(key []byte) (bool, error)
 
+	// HasAny checks a slice of keys, and returns a slice of those that are not
+	// present in the data store
+	HasAny(keys [][]byte) ([][]byte, error)
+
 	// Get retrieves the given key if it's present in the key-value data store.
 	Get(key []byte) ([]byte, error)
 }
