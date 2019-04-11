@@ -250,60 +250,57 @@ func (s *Sync) schedule(req *request) {
 // retrieval scheduling.
 func (s *Sync) children(req *request, object node) ([]*request, error) {
 	// Gather all the children of the node, irrelevant whether known or not
-	type child struct {
-		node  node
-		depth int
-	}
-	var children []child
 
-	switch node := (object).(type) {
+	var children []node
+	var childDepth int
+	switch typedNode := (object).(type) {
 	case *shortNode:
-		children = []child{{
-			node:  node.Val,
-			depth: req.depth + len(node.Key),
-		}}
+		children = []node{typedNode.Val}
+		childDepth = req.depth + len(typedNode.Key)
 	case *fullNode:
 		for i := 0; i < 17; i++ {
-			if node.Children[i] != nil {
-				children = append(children, child{
-					node:  node.Children[i],
-					depth: req.depth + 1,
-				})
+			if typedNode.Children[i] != nil {
+				children = append(children, typedNode.Children[i])
 			}
 		}
+		childDepth = req.depth + 1
 	default:
-		panic(fmt.Sprintf("unknown node: %+v", node))
+		panic(fmt.Sprintf("unknown node: %+v", typedNode))
 	}
+	var keysToCheck [][]byte
 	// Iterate over the children, and request all unknown ones
 	requests := make([]*request, 0, len(children))
 	for _, child := range children {
 		// Notify any external watcher of a new key/value node
 		if req.callback != nil {
-			if node, ok := (child.node).(valueNode); ok {
-				if err := req.callback(node, req.hash); err != nil {
+			if vNode, ok := (child).(valueNode); ok {
+				if err := req.callback(vNode, req.hash); err != nil {
 					return nil, err
 				}
 			}
 		}
 		// If the child references another node, resolve or schedule
-		if node, ok := (child.node).(hashNode); ok {
+		if node, ok := (child).(hashNode); ok {
 			// Try to resolve the node from the local database
 			hash := common.BytesToHash(node)
 			if _, ok := s.membatch.batch[hash]; ok {
 				continue
 			}
-			if ok, _ := s.database.Has(node); ok {
-				continue
-			}
-			// Locally unknown node, schedule for retrieval
-			requests = append(requests, &request{
-				hash:     hash,
-				parents:  []*request{req},
-				depth:    child.depth,
-				callback: req.callback,
-			})
+			keysToCheck = append(keysToCheck, node)
 		}
 	}
+
+	remainingKeys,_ := s.database.HasAny(keysToCheck)
+	for _, key := range remainingKeys {
+		hash := common.BytesToHash(key)
+		requests = append(requests, &request{
+			hash:     hash,
+			parents:  []*request{req},
+			depth:    childDepth,
+			callback: req.callback,
+		})
+	}
+
 	return requests, nil
 }
 

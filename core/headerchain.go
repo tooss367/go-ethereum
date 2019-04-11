@@ -267,16 +267,27 @@ func (hc *HeaderChain) InsertHeaderChain(chain []*types.Header, writeHeader WhCa
 	// Collect some import statistics to report on
 	stats := struct{ processed, ignored int }{}
 	// All headers passed verification, import them into the database
+	var lastWritten common.Hash
+	var checkSkipped int
 	for i, header := range chain {
 		// Short circuit insertion if shutting down
 		if hc.procInterrupt() {
 			log.Debug("Premature abort during headers import")
 			return i, errors.New("aborted")
 		}
-		// If the header's already known, skip it, otherwise store
-		if hc.HasHeader(header.Hash(), header.Number.Uint64()) {
-			stats.ignored++
-			continue
+		// If we just wrote the parent, no need to check if this one is known
+		parent := header.ParentHash
+		if lastWritten != parent{
+			// If the header's already known, skip it, otherwise store
+			hash := header.Hash()
+			if hc.HasHeader(hash, header.Number.Uint64()) {
+				stats.ignored++
+				continue
+			}
+			// We're going to write this
+			lastWritten = hash
+		}else{
+			checkSkipped++
 		}
 		if err := writeHeader(header); err != nil {
 			return i, err
@@ -288,7 +299,7 @@ func (hc *HeaderChain) InsertHeaderChain(chain []*types.Header, writeHeader WhCa
 
 	context := []interface{}{
 		"count", stats.processed, "elapsed", common.PrettyDuration(time.Since(start)),
-		"number", last.Number, "hash", last.Hash(),
+		"number", last.Number, "hash", last.Hash(),"skipchecks", checkSkipped,
 	}
 	if timestamp := time.Unix(int64(last.Time), 0); time.Since(timestamp) > time.Minute {
 		context = append(context, []interface{}{"age", common.PrettyAge(timestamp)}...)
