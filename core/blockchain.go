@@ -1702,8 +1702,8 @@ func (bc *BlockChain) InsertHeaderChain(chain []*types.Header, checkFreq int) (i
 	//	_, err := bc.hc.WriteHeader(header)
 	//	return err
 	//}
-	 count, _, err := bc.hc.InsertHeaderChainNew(chain, start)
-	 return count, err
+	count, _, err := bc.hc.InsertHeaderChainNew(chain, start)
+	return count, err
 	//return bc.hc.InsertHeaderChain(chain, whFunc, start)
 }
 
