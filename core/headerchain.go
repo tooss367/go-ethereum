@@ -122,23 +122,26 @@ func (hc *HeaderChain) GetBlockNumber(hash common.Hash) *uint64 {
 	return number
 }
 
-func (hc *HeaderChain) WriteHeaders(headers []*types.Header) (ignored, imported int, status WriteStatus, err error) {
+func (hc *HeaderChain) WriteHeaders(headers []*types.Header) (ignored, imported int, status WriteStatus, lastHash common.Hash, lastHeader *types.Header, err error) {
 	if len(headers) == 0 {
-		return 0, 0, NonStatTy, nil
+		return ignored, imported, NonStatTy, lastHash, nil, err
 	}
-	ptd := hc.GetTd(headers[0].ParentHash, number-1)
+	ptd := hc.GetTd(headers[0].ParentHash, headers[0].Number.Uint64()-1)
 	if ptd == nil {
-		return NonStatTy, consensus.ErrUnknownAncestor
+		return ignored, imported, NonStatTy, lastHash, nil, consensus.ErrUnknownAncestor
 	}
+	type numberHash struct {
+		number uint64
+		hash   common.Hash
+	}
+	lastHash = headers[0].ParentHash // Already validated above
 	var (
-		lastHash   = headers[0].ParentHash      // Already validated above
-		lastHeader *types.Header                // Last successfully imported header
-		lastNumber uint64                       // Last successfully imported number
-		externTd   *big.Int                     // TD of successfully imported chain
-		firstNum   = headers[0].Number.Uint64() // First number
+		lastNumber = headers[0].Number.Uint64() - 1 // Last successfully imported number
+		externTd   *big.Int                         // TD of successfully imported chain
+		inserted   []numberHash                     // Quick lookup of number/hash for the chain
 	)
 	batch := hc.chainDb.NewBatch()
-	for imported, header = range headers {
+	for _, header := range headers {
 		var (
 			hash   = header.Hash()
 			number = header.Number.Uint64()
@@ -149,15 +152,17 @@ func (hc *HeaderChain) WriteHeaders(headers []*types.Header) (ignored, imported 
 		}
 		externTd = new(big.Int).Add(header.Difficulty, ptd)
 		// Irrelevant of the canonical status, write the td and header to the database
-		if err := hc.WriteTd(hash, number, externTd); err != nil {
-			log.Crit("Failed to write header total difficulty", "err", err)
-		}
+		rawdb.WriteTd(batch, hash, number, externTd)
+		hc.tdCache.Add(hash, new(big.Int).Set(externTd))
 		rawdb.WriteHeader(batch, header)
+
 		lastHeader = header
 		lastHash = hash
-		ptd = externTd
 		lastNumber = number
-
+		ptd = externTd
+		inserted = append(inserted, numberHash{number, hash})
+		hc.headerCache.Add(hash, header)
+		hc.numberCache.Add(hash, number)
 	}
 	batch.Write()
 	batch.Reset()
@@ -180,19 +185,18 @@ func (hc *HeaderChain) WriteHeaders(headers []*types.Header) (ignored, imported 
 		// Overwrite any stale canonical number assignments, work backwards
 		// from the first inserted header
 		var (
-			headHash   = headers[0].ParentHash.ParentHash
+			headHash   = headers[0].ParentHash
 			headNumber = headers[0].Number.Uint64() - 1
-			headHeader = hc.GetHeader(headHash, headNumber)
 		)
 		for rawdb.ReadCanonicalHash(hc.chainDb, headNumber) != headHash {
 			rawdb.WriteCanonicalHash(batch, headHash, headNumber)
+			headHeader := hc.GetHeader(headHash, headNumber)
 			headHash = headHeader.ParentHash
 			headNumber = headHeader.Number.Uint64() - 1
-			headHeader = hc.GetHeader(headHash, headNumber)
 		}
 		// Now write the current chain in a batch
-		for _, numberHash := range numberHashes {
-			rawdb.WriteCanonicalHash(batch, numberHash.hash, numberHash.number)
+		for _, hdr := range inserted {
+			rawdb.WriteCanonicalHash(batch, hdr.hash, hdr.number)
 		}
 		rawdb.WriteHeadHeaderHash(batch, lastHash)
 		batch.Write()
@@ -203,7 +207,10 @@ func (hc *HeaderChain) WriteHeaders(headers []*types.Header) (ignored, imported 
 	} else {
 		status = SideStatTy
 	}
-	return imported, len(headers) - imported, status, nil
+
+	imported = len(inserted)
+	ignored = len(headers) - imported
+	return ignored, imported, status, lastHash, lastHeader, nil
 }
 
 // WriteHeader writes a header into the local chain, given that its parent is
@@ -216,69 +223,72 @@ func (hc *HeaderChain) WriteHeaders(headers []*types.Header) (ignored, imported 
 // in two scenarios: pure-header mode of operation (light clients), or properly
 // separated header/block phases (non-archive clients).
 func (hc *HeaderChain) WriteHeader(header *types.Header) (status WriteStatus, err error) {
-	// Cache some values to prevent constant recalculation
-	var (
-		hash   = header.Hash()
-		number = header.Number.Uint64()
-	)
-	// Calculate the total difficulty of the header
-	ptd := hc.GetTd(header.ParentHash, number-1)
-	if ptd == nil {
-		return NonStatTy, consensus.ErrUnknownAncestor
-	}
-	localTd := hc.GetTd(hc.currentHeaderHash, hc.CurrentHeader().Number.Uint64())
-	externTd := new(big.Int).Add(header.Difficulty, ptd)
-
-	// Irrelevant of the canonical status, write the td and header to the database
-	if err := hc.WriteTd(hash, number, externTd); err != nil {
-		log.Crit("Failed to write header total difficulty", "err", err)
-	}
-	rawdb.WriteHeader(hc.chainDb, header)
-
-	// If the total difficulty is higher than our known, add it to the canonical chain
-	// Second clause in the if statement reduces the vulnerability to selfish mining.
-	// Please refer to http://www.cs.cornell.edu/~ie53/publications/btcProcFC.pdf
-	if externTd.Cmp(localTd) > 0 || (externTd.Cmp(localTd) == 0 && mrand.Float64() < 0.5) {
-		// Delete any canonical number assignments above the new head
-		batch := hc.chainDb.NewBatch()
-		for i := number + 1; ; i++ {
-			hash := rawdb.ReadCanonicalHash(hc.chainDb, i)
-			if hash == (common.Hash{}) {
-				break
-			}
-			rawdb.DeleteCanonicalHash(batch, i)
-		}
-		batch.Write()
-
-		// Overwrite any stale canonical number assignments
-		var (
-			headHash   = header.ParentHash
-			headNumber = header.Number.Uint64() - 1
-			headHeader = hc.GetHeader(headHash, headNumber)
-		)
-		for rawdb.ReadCanonicalHash(hc.chainDb, headNumber) != headHash {
-			rawdb.WriteCanonicalHash(hc.chainDb, headHash, headNumber)
-
-			headHash = headHeader.ParentHash
-			headNumber = headHeader.Number.Uint64() - 1
-			headHeader = hc.GetHeader(headHash, headNumber)
-		}
-		// Extend the canonical chain with the new header
-		rawdb.WriteCanonicalHash(hc.chainDb, hash, number)
-		rawdb.WriteHeadHeaderHash(hc.chainDb, hash)
-
-		hc.currentHeaderHash = hash
-		hc.currentHeader.Store(types.CopyHeader(header))
-
-		status = CanonStatTy
-	} else {
-		status = SideStatTy
-	}
-
-	hc.headerCache.Add(hash, header)
-	hc.numberCache.Add(hash, number)
-
-	return
+	_, _, stat, _, _, err := hc.WriteHeaders([]*types.Header{header})
+	return stat, err
+	//
+	//// Cache some values to prevent constant recalculation
+	//var (
+	//	hash   = header.Hash()
+	//	number = header.Number.Uint64()
+	//)
+	//// Calculate the total difficulty of the header
+	//ptd := hc.GetTd(header.ParentHash, number-1)
+	//if ptd == nil {
+	//	return NonStatTy, consensus.ErrUnknownAncestor
+	//}
+	//localTd := hc.GetTd(hc.currentHeaderHash, hc.CurrentHeader().Number.Uint64())
+	//externTd := new(big.Int).Add(header.Difficulty, ptd)
+	//
+	//// Irrelevant of the canonical status, write the td and header to the database
+	//if err := hc.WriteTd(hash, number, externTd); err != nil {
+	//	log.Crit("Failed to write header total difficulty", "err", err)
+	//}
+	//rawdb.WriteHeader(hc.chainDb, header)
+	//
+	//// If the total difficulty is higher than our known, add it to the canonical chain
+	//// Second clause in the if statement reduces the vulnerability to selfish mining.
+	//// Please refer to http://www.cs.cornell.edu/~ie53/publications/btcProcFC.pdf
+	//if externTd.Cmp(localTd) > 0 || (externTd.Cmp(localTd) == 0 && mrand.Float64() < 0.5) {
+	//	// Delete any canonical number assignments above the new head
+	//	batch := hc.chainDb.NewBatch()
+	//	for i := number + 1; ; i++ {
+	//		hash := rawdb.ReadCanonicalHash(hc.chainDb, i)
+	//		if hash == (common.Hash{}) {
+	//			break
+	//		}
+	//		rawdb.DeleteCanonicalHash(batch, i)
+	//	}
+	//	batch.Write()
+	//
+	//	// Overwrite any stale canonical number assignments
+	//	var (
+	//		headHash   = header.ParentHash
+	//		headNumber = header.Number.Uint64() - 1
+	//		headHeader = hc.GetHeader(headHash, headNumber)
+	//	)
+	//	for rawdb.ReadCanonicalHash(hc.chainDb, headNumber) != headHash {
+	//		rawdb.WriteCanonicalHash(hc.chainDb, headHash, headNumber)
+	//
+	//		headHash = headHeader.ParentHash
+	//		headNumber = headHeader.Number.Uint64() - 1
+	//		headHeader = hc.GetHeader(headHash, headNumber)
+	//	}
+	//	// Extend the canonical chain with the new header
+	//	rawdb.WriteCanonicalHash(hc.chainDb, hash, number)
+	//	rawdb.WriteHeadHeaderHash(hc.chainDb, hash)
+	//
+	//	hc.currentHeaderHash = hash
+	//	hc.currentHeader.Store(types.CopyHeader(header))
+	//
+	//	status = CanonStatTy
+	//} else {
+	//	status = SideStatTy
+	//}
+	//
+	//hc.headerCache.Add(hash, header)
+	//hc.numberCache.Add(hash, number)
+	//
+	//return
 }
 
 // WhCallback is a callback function for inserting individual headers.
@@ -337,6 +347,29 @@ func (hc *HeaderChain) ValidateHeaderChain(chain []*types.Header, checkFreq int)
 	}
 
 	return 0, nil
+}
+
+func (hc *HeaderChain) InsertHeaderChainNew(chain []*types.Header, start time.Time) (int, WriteStatus, error) {
+	// Collect some import statistics to report on
+	ignored, imported, status, lastHash, last, err := hc.WriteHeaders(chain)
+	context := []interface{}{
+		"count", imported,
+		"elapsed", common.PrettyDuration(time.Since(start)),
+	}
+	if err != nil {
+		context = append(context, "err", err)
+	}
+	if last != nil {
+		context = append(context, "number", last.Number, "hash", lastHash)
+	}
+	if timestamp := time.Unix(int64(last.Time), 0); time.Since(timestamp) > time.Minute {
+		context = append(context, []interface{}{"age", common.PrettyAge(timestamp)}...)
+	}
+	if ignored > 0 {
+		context = append(context, []interface{}{"ignored", ignored}...)
+	}
+	log.Info("Imported new block headers", context...)
+	return 0, status, nil
 }
 
 // InsertHeaderChain attempts to insert the given header chain in to the local

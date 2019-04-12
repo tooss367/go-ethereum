@@ -1698,11 +1698,13 @@ func (bc *BlockChain) InsertHeaderChain(chain []*types.Header, checkFreq int) (i
 	bc.wg.Add(1)
 	defer bc.wg.Done()
 
-	whFunc := func(header *types.Header) error {
-		_, err := bc.hc.WriteHeader(header)
-		return err
-	}
-	return bc.hc.InsertHeaderChain(chain, whFunc, start)
+	//whFunc := func(header *types.Header) error {
+	//	_, err := bc.hc.WriteHeader(header)
+	//	return err
+	//}
+	 count, _, err := bc.hc.InsertHeaderChainNew(chain, start)
+	 return count, err
+	//return bc.hc.InsertHeaderChain(chain, whFunc, start)
 }
 
 // CurrentHeader retrieves the current head header of the canonical chain. The
