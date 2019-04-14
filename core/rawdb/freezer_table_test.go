@@ -32,10 +32,10 @@ func init() {
 }
 
 // Gets a chunk of data, filled with 'b'
-func getChunk(size int, b byte) []byte {
+func getChunk(size int, b int) []byte {
 	data := make([]byte, size)
 	for i, _ := range data {
-		data[i] = b
+		data[i] = byte(b)
 	}
 	return data
 }
@@ -61,7 +61,7 @@ func TestFreezerBasics(t *testing.T) {
 	}
 	defer f.Close()
 	// Write 15 bytes 255 times, results in 85 files
-	for x := byte(0); x < 255; x++ {
+	for x := 0; x < 255; x++ {
 		data := getChunk(15, x)
 		f.Append(uint64(x), data)
 	}
@@ -74,7 +74,7 @@ func TestFreezerBasics(t *testing.T) {
 	//db[1] =  010101010101010101010101010101
 	//db[2] =  020202020202020202020202020202
 
-	for y := byte(0); y < 255; y++ {
+	for y := 0; y < 255; y++ {
 		exp := getChunk(15, y)
 		got, err := f.Retrieve(uint64(y))
 		if err != nil {
@@ -83,6 +83,11 @@ func TestFreezerBasics(t *testing.T) {
 		if !bytes.Equal(got, exp) {
 			t.Fatalf("test %d, got \n%x != \n%x", y, got, exp)
 		}
+	}
+	// Check that we cannot read too far
+	_, err = f.Retrieve(uint64(255))
+	if err != errOutOfBounds {
+		t.Fatal(err)
 	}
 }
 
@@ -102,18 +107,15 @@ func TestFreezerBasicsClosing(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Write 15 bytes 255 times, results in 85 files
-	for x := byte(0); x < 255; x++ {
+	for x := 0; x < 255; x++ {
 		data := getChunk(15, x)
 		f.Append(uint64(x), data)
 		f.Close()
 		f, err = newCustomTable(os.TempDir(), fname, m1, m2, 50, true)
-		if err != nil {
-			t.Fatal(err)
-		}
 	}
 	defer f.Close()
 
-	for y := byte(0); y < 255; y++ {
+	for y := 0; y < 255; y++ {
 		exp := getChunk(15, y)
 		got, err := f.Retrieve(uint64(y))
 		if err != nil {
@@ -142,7 +144,7 @@ func TestFreezerRepairDanglingHead(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Write 15 bytes 255 times
-		for x := byte(0); x < 0xff; x++ {
+		for x := 0; x < 255; x++ {
 			data := getChunk(15, x)
 			f.Append(uint64(x), data)
 		}
@@ -190,7 +192,7 @@ func TestFreezerRepairDanglingHeadLarge(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Write 15 bytes 255 times
-		for x := byte(0); x < 0xff; x++ {
+		for x := 0; x < 0xff; x++ {
 			data := getChunk(15, x)
 			f.Append(uint64(x), data)
 		}
@@ -223,7 +225,7 @@ func TestFreezerRepairDanglingHeadLarge(t *testing.T) {
 			t.Errorf("Expected error for missing index entry")
 		}
 		// We should now be able to store items again, from item = 1
-		for x := byte(1); x < 0xff; x++ {
+		for x := 1; x < 0xff; x++ {
 			data := getChunk(15, ^x)
 			f.Append(uint64(x), data)
 		}
@@ -232,7 +234,7 @@ func TestFreezerRepairDanglingHeadLarge(t *testing.T) {
 	// And if we open it, we should now be able to read all of them (new values)
 	{
 		f, _ := newCustomTable(os.TempDir(), fname, rm, wm, 50, true)
-		for y := byte(1); y < 255; y++ {
+		for y := 1; y < 255; y++ {
 			exp := getChunk(15, ^y)
 			got, err := f.Retrieve(uint64(y))
 			if err != nil {
@@ -257,7 +259,7 @@ func TestSnappyDetection(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Write 15 bytes 255 times
-		for x := byte(0); x < 0xff; x++ {
+		for x := 0; x < 0xff; x++ {
 			data := getChunk(15, x)
 			f.Append(uint64(x), data)
 		}
@@ -308,7 +310,7 @@ func TestFreezerRepairDanglingIndex(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Write 15 bytes 9 times : 150 bytes
-		for x := byte(0); x < 9; x++ {
+		for x := 0; x < 9; x++ {
 			data := getChunk(15, x)
 			f.Append(uint64(x), data)
 		}
@@ -365,7 +367,7 @@ func TestFreezerTruncate(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Write 15 bytes 30 times
-		for x := byte(0); x < 30; x++ {
+		for x := 0; x < 30; x++ {
 			data := getChunk(15, x)
 			f.Append(uint64(x), data)
 		}
@@ -463,7 +465,7 @@ func TestFreezerReadAndTruncate(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Write 15 bytes 30 times
-		for x := byte(0); x < 30; x++ {
+		for x := 0; x < 30; x++ {
 			data := getChunk(15, x)
 			f.Append(uint64(x), data)
 		}
@@ -489,7 +491,7 @@ func TestFreezerReadAndTruncate(t *testing.T) {
 		// Now, truncate back to zero
 		f.truncate(0)
 		// Write the data again
-		for x := byte(0); x < 30; x++ {
+		for x := 0; x < 30; x++ {
 			data := getChunk(15, ^x)
 			if err := f.Append(uint64(x), data); err != nil {
 				t.Fatalf("error %v", err)
