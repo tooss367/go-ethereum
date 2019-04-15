@@ -501,6 +501,100 @@ func TestFreezerReadAndTruncate(t *testing.T) {
 	}
 }
 
+func TestOffset(t *testing.T) {
+	t.Parallel()
+	wm, rm := metrics.NewMeter(), metrics.NewMeter()
+	fname := fmt.Sprintf("offset-%d", rand.Uint64())
+	{ // Fill table
+		f, err := newCustomTable(os.TempDir(), fname, rm, wm, 40, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Write 6 x 20 bytes, splitting out into three files
+		f.Append(0, getChunk(20, 0xFF))
+		f.Append(1, getChunk(20, 0xEE))
+
+		f.Append(2, getChunk(20, 0xdd))
+		f.Append(3, getChunk(20, 0xcc))
+
+		f.Append(4, getChunk(20, 0xbb))
+		f.Append(5, getChunk(20, 0xaa))
+		f.Close()
+	}
+	// Now crop it.
+	{
+		// delete files 0 and 1
+		for i := 0; i < 2; i++ {
+			p := filepath.Join(os.TempDir(), fmt.Sprintf("%v.%d.rdat", fname, i))
+			if err := os.Remove(p); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// Read the index file
+		p := filepath.Join(os.TempDir(), fmt.Sprintf("%v.ridx", fname))
+		indexFile, err := os.OpenFile(p, os.O_RDWR, 0644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		indexBuf := make([]byte, 7*indexEntrySize)
+		indexFile.Read(indexBuf)
+
+		// Update the index file, so that we store
+		// [ file = 2, offset = 4 ] at index zero
+
+		tailId := uint32(2)     // First file is 2
+		itemOffset := uint32(4) // We have removed four items
+		zeroIndex := indexEntry{
+			offset:  tailId,
+			filenum: itemOffset,
+		}
+		buf := zeroIndex.marshallBinary()
+		// Overwrite index zero
+		copy(indexBuf, buf)
+		// Remove the four next indices by overwriting
+		copy(indexBuf[indexEntrySize:], indexBuf[indexEntrySize*5:])
+		indexFile.WriteAt(indexBuf, 0)
+		// Need to truncate the moved index items
+		indexFile.Truncate(indexEntrySize * (1 + 2))
+		indexFile.Close()
+
+	}
+	// Now open again
+	{
+		f, err := newCustomTable(os.TempDir(), fname, rm, wm, 40, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.printIndex()
+		// It should allow writing item 6
+		f.Append(6, getChunk(20, 0x99))
+
+		// It should be fine to fetch 4,5,6
+		if got, err := f.Retrieve(4); err != nil {
+			t.Fatal(err)
+		} else if exp := getChunk(20, 0xbb); !bytes.Equal(got, exp) {
+			t.Fatalf("expected %x got %x", exp, got)
+		}
+		if got, err := f.Retrieve(5); err != nil {
+			t.Fatal(err)
+		} else if exp := getChunk(20, 0xaa); !bytes.Equal(got, exp) {
+			t.Fatalf("expected %x got %x", exp, got)
+		}
+		if got, err := f.Retrieve(6); err != nil {
+			t.Fatal(err)
+		} else if exp := getChunk(20, 0x99); !bytes.Equal(got, exp) {
+			t.Fatalf("expected %x got %x", exp, got)
+		}
+
+		// It should error at 0, 1,2,3
+		for i := 0; i < 4; i++ {
+			if _, err := f.Retrieve(uint64(i)); err == nil {
+				t.Fatal("expected err")
+			}
+		}
+	}
+}
+
 // TODO (?)
 // - test that if we remove several head-files, aswell as data last data-file,
 //   the index is truncated accordingly

@@ -177,8 +177,8 @@ func (t *freezerTable) repair() error {
 	t.index.ReadAt(buffer, 0)
 	firstIndex.unmarshalBinary(buffer)
 
-	t.tailId = firstIndex.filenum
-	t.itemOffset = firstIndex.offset
+	t.tailId = firstIndex.offset
+	t.itemOffset = firstIndex.filenum
 
 	t.index.ReadAt(buffer, offsetsSize-indexEntrySize)
 	lastIndex.unmarshalBinary(buffer)
@@ -237,7 +237,7 @@ func (t *freezerTable) repair() error {
 		return err
 	}
 	// Update the item and byte counters and return
-	t.items = uint64(offsetsSize/indexEntrySize - 1) // last indexEntry points to the end of the data file
+	t.items = uint64(t.itemOffset) + uint64(offsetsSize/indexEntrySize-1) // last indexEntry points to the end of the data file
 	t.headBytes = uint32(contentSize)
 	t.headId = lastIndex.filenum
 
@@ -393,7 +393,8 @@ func (t *freezerTable) Append(item uint64, blob []byte) error {
 	}
 	// Ensure only the next item can be written, nothing else
 	if atomic.LoadUint64(&t.items) != item {
-		panic(fmt.Sprintf("appending unexpected item: want %d, have %d", t.items, item))
+		t.lock.RUnlock()
+		return fmt.Errorf("appending unexpected item: want %d, have %d", t.items, item)
 	}
 	// Encode the blob and write it into the data file
 	if !t.noCompression {
@@ -514,4 +515,21 @@ func (t *freezerTable) Sync() error {
 		return err
 	}
 	return t.head.Sync()
+}
+
+// printIndex is a debug print utility function for testing
+func (t *freezerTable) printIndex() {
+	buf := make([]byte, indexEntrySize)
+	var err error
+	fmt.Printf("|-----------------|\n")
+	fmt.Printf("| fileno | offset |\n")
+	fmt.Printf("|--------+--------|\n")
+	for i := uint64(0); err == nil; i++ {
+
+		_, err = t.index.ReadAt(buf, int64(i*indexEntrySize))
+		var entry indexEntry
+		entry.unmarshalBinary(buf)
+		fmt.Printf("|  %03d   |  %03d   | \n", entry.filenum, entry.offset)
+	}
+
 }
