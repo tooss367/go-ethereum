@@ -342,9 +342,9 @@ func (t *freezerTable) openFile(num uint32, flag int) (f *os.File, err error) {
 	if f, exist = t.files[num]; !exist {
 		var name string
 		if t.noCompression {
-			name = fmt.Sprintf("%s.%d.rdat", t.name, num)
+			name = fmt.Sprintf("%s.%04d.rdat", t.name, num)
 		} else {
-			name = fmt.Sprintf("%s.%d.cdat", t.name, num)
+			name = fmt.Sprintf("%s.%04d.cdat", t.name, num)
 		}
 		f, err = os.OpenFile(filepath.Join(t.path, name), flag, 0644)
 		if err != nil {
@@ -524,12 +524,19 @@ func (t *freezerTable) printIndex() {
 	fmt.Printf("|-----------------|\n")
 	fmt.Printf("| fileno | offset |\n")
 	fmt.Printf("|--------+--------|\n")
-	for i := uint64(0); err == nil; i++ {
-
+	for i := uint64(0); ; i++ {
 		_, err = t.index.ReadAt(buf, int64(i*indexEntrySize))
+		if err != nil {
+			break
+		}
 		var entry indexEntry
 		entry.unmarshalBinary(buf)
 		fmt.Printf("|  %03d   |  %03d   | \n", entry.filenum, entry.offset)
+		if i > 100 {
+			fmt.Printf(" ... \n")
+			break
+		}
 	}
+	fmt.Printf("|-----------------|\n")
 
 }

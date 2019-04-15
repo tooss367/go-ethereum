@@ -323,7 +323,7 @@ func TestFreezerRepairDanglingIndex(t *testing.T) {
 		// File sizes should be 45, 45, 45 : items[3, 3, 3)
 	}
 	// Crop third file
-	fileToCrop := filepath.Join(os.TempDir(), fmt.Sprintf("%s.2.rdat", fname))
+	fileToCrop := filepath.Join(os.TempDir(), fmt.Sprintf("%s.0002.rdat", fname))
 	// Truncate third file: 45 ,45, 20
 	{
 		if err := assertFileSize(fileToCrop, 45); err != nil {
@@ -418,7 +418,7 @@ func TestFreezerRepairFirstFile(t *testing.T) {
 		f.Close()
 	}
 	// Truncate the file in half
-	fileToCrop := filepath.Join(os.TempDir(), fmt.Sprintf("%s.1.rdat", fname))
+	fileToCrop := filepath.Join(os.TempDir(), fmt.Sprintf("%s.0001.rdat", fname))
 	{
 		if err := assertFileSize(fileToCrop, 40); err != nil {
 			t.Fatal(err)
@@ -519,13 +519,14 @@ func TestOffset(t *testing.T) {
 
 		f.Append(4, getChunk(20, 0xbb))
 		f.Append(5, getChunk(20, 0xaa))
+		f.printIndex()
 		f.Close()
 	}
 	// Now crop it.
 	{
 		// delete files 0 and 1
 		for i := 0; i < 2; i++ {
-			p := filepath.Join(os.TempDir(), fmt.Sprintf("%v.%d.rdat", fname, i))
+			p := filepath.Join(os.TempDir(), fmt.Sprintf("%v.%04d.rdat", fname, i))
 			if err := os.Remove(p); err != nil {
 				t.Fatal(err)
 			}
