@@ -90,7 +90,16 @@ func newFreezer(datadir string, namespace string) (*freezer, error) {
 		instanceLock: lock,
 	}
 	for _, name := range []string{freezerHashTable, freezerHeaderTable, freezerBodiesTable, freezerReceiptTable, freezerDifficultyTable} {
-		table, err := newTable(datadir, name, readMeter, writeMeter)
+		var (
+			table *freezerTable
+			err   error
+		)
+		// Hashes and difficulties don't compress well
+		if name == freezerHashTable || name == freezerDifficultyTable {
+			table, err = newCustomTable(datadir, name, readMeter, writeMeter, 2*1000*1000*1000, true)
+		} else {
+			table, err = newTable(datadir, name, readMeter, writeMeter)
+		}
 		if err != nil {
 			for _, table := range freezer.tables {
 				table.Close()
