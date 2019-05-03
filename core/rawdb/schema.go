@@ -80,6 +80,16 @@ const (
 	freezerDifficultyTable = "diffs"
 )
 
+// freezerConfig configures whether compression is disabled for the ancient-tables.
+// Hashes and difficulties don't compress well.
+var freezerConfig = map[string]bool{
+	freezerHeaderTable:     false,
+	freezerHashTable:       true,
+	freezerBodiesTable:     false,
+	freezerReceiptTable:    false,
+	freezerDifficultyTable: true,
+}
+
 // LegacyTxLookupEntry is the legacy TxLookupEntry definition with some unnecessary
 // fields.
 type LegacyTxLookupEntry struct {
