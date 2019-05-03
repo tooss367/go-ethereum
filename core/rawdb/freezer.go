@@ -89,12 +89,8 @@ func newFreezer(datadir string, namespace string) (*freezer, error) {
 		tables:       make(map[string]*freezerTable),
 		instanceLock: lock,
 	}
-	for name, disableSnappy := range freezerConfig {
-		var (
-			table *freezerTable
-			err   error
-		)
-		table, err = newTable(datadir, name, readMeter, writeMeter, disableSnappy)
+	for name, disableSnappy := range freezerNoSnappy {
+		table, err := newTable(datadir, name, readMeter, writeMeter, disableSnappy)
 		if err != nil {
 			for _, table := range freezer.tables {
 				table.Close()

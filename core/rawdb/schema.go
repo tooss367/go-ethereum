@@ -80,9 +80,9 @@ const (
 	freezerDifficultyTable = "diffs"
 )
 
-// freezerConfig configures whether compression is disabled for the ancient-tables.
+// freezerNoSnappy configures whether compression is disabled for the ancient-tables.
 // Hashes and difficulties don't compress well.
-var freezerConfig = map[string]bool{
+var freezerNoSnappy = map[string]bool{
 	freezerHeaderTable:     false,
 	freezerHashTable:       true,
 	freezerBodiesTable:     false,
