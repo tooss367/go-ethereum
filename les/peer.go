@@ -19,6 +19,7 @@ package les
 import (
 	"errors"
 	"fmt"
+	types2 "github.com/ethereum/go-ethereum/p2p/types"
 	"math/big"
 	"sync"
 	"time"
@@ -61,7 +62,7 @@ const (
 type peer struct {
 	*p2p.Peer
 
-	rw p2p.MsgReadWriter
+	rw types2.MsgReadWriter
 
 	version int    // Protocol version negotiated
 	network uint64 // Network ID being on
@@ -96,7 +97,7 @@ type peer struct {
 	isOnlyAnnounce bool
 }
 
-func newPeer(version int, network uint64, isTrusted bool, p *p2p.Peer, rw p2p.MsgReadWriter) *peer {
+func newPeer(version int, network uint64, isTrusted bool, p *p2p.Peer, rw types2.MsgReadWriter) *peer {
 	return &peer{
 		Peer:      p,
 		rw:        rw,
@@ -197,19 +198,19 @@ func (p *peer) updateCapacity(cap uint64) {
 	p.queueSend(func() { p.SendAnnounce(announceData{Update: kvList}) })
 }
 
-func sendRequest(w p2p.MsgWriter, msgcode, reqID, cost uint64, data interface{}) error {
+func sendRequest(w types2.MsgWriter, msgcode, reqID, cost uint64, data interface{}) error {
 	type req struct {
 		ReqID uint64
 		Data  interface{}
 	}
-	return p2p.Send(w, msgcode, req{reqID, data})
+	return types2.Send(w, msgcode, req{reqID, data})
 }
 
 // reply struct represents a reply with the actual data already RLP encoded and
 // only the bv (buffer value) missing. This allows the serving mechanism to
 // calculate the bv value which depends on the data size before sending the reply.
 type reply struct {
-	w              p2p.MsgWriter
+	w              types2.MsgWriter
 	msgcode, reqID uint64
 	data           rlp.RawValue
 }
@@ -220,7 +221,7 @@ func (r *reply) send(bv uint64) error {
 		ReqID, BV uint64
 		Data      rlp.RawValue
 	}
-	return p2p.Send(r.w, r.msgcode, resp{r.reqID, bv, r.data})
+	return types2.Send(r.w, r.msgcode, resp{r.reqID, bv, r.data})
 }
 
 // size returns the RLP encoded size of the message data
@@ -274,7 +275,7 @@ func (p *peer) HasBlock(hash common.Hash, number uint64, hasState bool) bool {
 // SendAnnounce announces the availability of a number of blocks through
 // a hash notification.
 func (p *peer) SendAnnounce(request announceData) error {
-	return p2p.Send(p.rw, AnnounceMsg, request)
+	return types2.Send(p.rw, AnnounceMsg, request)
 }
 
 // ReplyBlockHeaders creates a reply with a batch of block headers
@@ -425,7 +426,7 @@ func (p *peer) sendReceiveHandshake(sendList keyValueList) (keyValueList, error)
 	// Send out own handshake in a new thread
 	errc := make(chan error, 1)
 	go func() {
-		errc <- p2p.Send(p.rw, StatusMsg, sendList)
+		errc <- types2.Send(p.rw, StatusMsg, sendList)
 	}()
 	// In the mean time retrieve the remote status message
 	msg, err := p.rw.ReadMsg()
@@ -695,7 +696,7 @@ func (ps *peerSet) Unregister(id string) error {
 		}
 
 		p.sendQueue.quit()
-		p.Peer.Disconnect(p2p.DiscUselessPeer)
+		p.Peer.Disconnect(types2.DiscUselessPeer)
 
 		return nil
 	}
@@ -769,7 +770,7 @@ func (ps *peerSet) Close() {
 	defer ps.lock.Unlock()
 
 	for _, p := range ps.peers {
-		p.Disconnect(p2p.DiscQuitting)
+		p.Disconnect(types2.DiscQuitting)
 	}
 	ps.closed = true
 }

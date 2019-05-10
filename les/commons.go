@@ -18,6 +18,7 @@ package les
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/p2p/types"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -60,7 +61,7 @@ func (c *lesCommons) makeProtocols(versions []uint) []p2p.Protocol {
 			Version:  version,
 			Length:   ProtocolLengths[version],
 			NodeInfo: c.nodeInfo,
-			Run: func(p *p2p.Peer, rw p2p.MsgReadWriter) error {
+			Run: func(p *p2p.Peer, rw types.MsgReadWriter) error {
 				return c.protocolManager.runPeer(version, p, rw)
 			},
 			PeerInfo: func(id enode.ID) interface{} {

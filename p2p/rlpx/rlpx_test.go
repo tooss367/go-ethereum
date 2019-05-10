@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-package p2p
+package rlpx
 
 import (
 	"bytes"
@@ -267,7 +267,7 @@ func TestProtocolHandshakeErrors(t *testing.T) {
 func TestRLPXFrameFake(t *testing.T) {
 	buf := new(bytes.Buffer)
 	hash := fakeHash([]byte{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1})
-	rw := newRLPXFrameRW(buf, secrets{
+	rw := NewRLPXFrameRW(buf, secrets{
 		AES:        crypto.Keccak256(),
 		MAC:        crypto.Keccak256(),
 		IngressMAC: hash,
@@ -338,7 +338,7 @@ func TestRLPXFrameRW(t *testing.T) {
 	}
 	s1.EgressMAC.Write(egressMACinit)
 	s1.IngressMAC.Write(ingressMACinit)
-	rw1 := newRLPXFrameRW(conn, s1)
+	rw1 := NewRLPXFrameRW(conn, s1)
 
 	s2 := secrets{
 		AES:        aesSecret,
@@ -348,7 +348,7 @@ func TestRLPXFrameRW(t *testing.T) {
 	}
 	s2.EgressMAC.Write(ingressMACinit)
 	s2.IngressMAC.Write(egressMACinit)
-	rw2 := newRLPXFrameRW(conn, s2)
+	rw2 := NewRLPXFrameRW(conn, s2)
 
 	// send some messages
 	for i := 0; i < 10; i++ {

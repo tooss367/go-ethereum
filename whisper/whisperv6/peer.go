@@ -18,6 +18,7 @@ package whisperv6
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/p2p/types"
 	"math"
 	"sync"
 	"time"
@@ -33,7 +34,7 @@ import (
 type Peer struct {
 	host *Whisper
 	peer *p2p.Peer
-	ws   p2p.MsgReadWriter
+	ws   types.MsgReadWriter
 
 	trusted        bool
 	powRequirement float64
@@ -47,7 +48,7 @@ type Peer struct {
 }
 
 // newPeer creates a new whisper peer object, but does not run the handshake itself.
-func newPeer(host *Whisper, remote *p2p.Peer, rw p2p.MsgReadWriter) *Peer {
+func newPeer(host *Whisper, remote *p2p.Peer, rw types.MsgReadWriter) *Peer {
 	return &Peer{
 		host:           host,
 		peer:           remote,
@@ -86,7 +87,7 @@ func (peer *Peer) handshake() error {
 		powConverted := math.Float64bits(pow)
 		bloom := peer.host.BloomFilter()
 
-		errc <- p2p.SendItems(peer.ws, statusCode, ProtocolVersion, powConverted, bloom, isLightNode)
+		errc <- types.SendItems(peer.ws, statusCode, ProtocolVersion, powConverted, bloom, isLightNode)
 	}()
 
 	// Fetch the remote status packet and verify protocol match
@@ -205,7 +206,7 @@ func (peer *Peer) broadcast() error {
 
 	if len(bundle) > 0 {
 		// transmit the batch of envelopes
-		if err := p2p.Send(peer.ws, messagesCode, bundle); err != nil {
+		if err := types.Send(peer.ws, messagesCode, bundle); err != nil {
 			return err
 		}
 
@@ -227,11 +228,11 @@ func (peer *Peer) ID() []byte {
 
 func (peer *Peer) notifyAboutPowRequirementChange(pow float64) error {
 	i := math.Float64bits(pow)
-	return p2p.Send(peer.ws, powRequirementCode, i)
+	return types.Send(peer.ws, powRequirementCode, i)
 }
 
 func (peer *Peer) notifyAboutBloomFilterChange(bloom []byte) error {
-	return p2p.Send(peer.ws, bloomFilterExCode, bloom)
+	return types.Send(peer.ws, bloomFilterExCode, bloom)
 }
 
 func (peer *Peer) bloomMatch(env *Envelope) bool {

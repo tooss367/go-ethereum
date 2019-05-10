@@ -19,6 +19,7 @@ package p2p
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/p2p/types"
 	"io"
 	"net"
 	"sort"
@@ -40,32 +41,11 @@ var (
 const (
 	baseProtocolVersion    = 5
 	baseProtocolLength     = uint64(16)
-	baseProtocolMaxMsgSize = 2 * 1024
-
-	snappyProtocolVersion = 5
 
 	pingInterval = 15 * time.Second
 )
 
-const (
-	// devp2p message codes
-	handshakeMsg = 0x00
-	discMsg      = 0x01
-	pingMsg      = 0x02
-	pongMsg      = 0x03
-)
 
-// protoHandshake is the RLP structure of the protocol handshake.
-type protoHandshake struct {
-	Version    uint64
-	Name       string
-	Caps       []Cap
-	ListenPort uint64
-	ID         []byte // secp256k1 public key
-
-	// Ignore additional fields (for forward compatibility).
-	Rest []rlp.RawValue `rlp:"tail"`
-}
 
 // PeerEventType is the type of peer events emitted by a p2p.Server
 type PeerEventType string
@@ -109,17 +89,17 @@ type Peer struct {
 	wg       sync.WaitGroup
 	protoErr chan error
 	closed   chan struct{}
-	disc     chan DiscReason
+	disc     chan types.DiscReason
 
 	// events receives message send / receive events if set
 	events *event.Feed
 }
 
 // NewPeer returns a peer for testing purposes.
-func NewPeer(id enode.ID, name string, caps []Cap) *Peer {
+func NewPeer(id enode.ID, name string, caps []types.Cap) *Peer {
 	pipe, _ := net.Pipe()
 	node := enode.SignNull(new(enr.Record), id)
-	conn := &conn{fd: pipe, transport: nil, node: node, caps: caps, name: name}
+	conn := &conn{fd: pipe, Transport: nil, node: node, caps: caps, name: name}
 	peer := newPeer(conn, nil)
 	close(peer.closed) // ensures Disconnect doesn't block
 	return peer
@@ -141,7 +121,7 @@ func (p *Peer) Name() string {
 }
 
 // Caps returns the capabilities (supported subprotocols) of the remote peer.
-func (p *Peer) Caps() []Cap {
+func (p *Peer) Caps() []types.Cap {
 	// TODO: maybe return copy
 	return p.rw.caps
 }
@@ -158,7 +138,7 @@ func (p *Peer) LocalAddr() net.Addr {
 
 // Disconnect terminates the peer connection with the given reason.
 // It returns immediately and does not wait until the connection is closed.
-func (p *Peer) Disconnect(reason DiscReason) {
+func (p *Peer) Disconnect(reason types.DiscReason) {
 	select {
 	case p.disc <- reason:
 	case <-p.closed:
@@ -182,7 +162,7 @@ func newPeer(conn *conn, protocols []Protocol) *Peer {
 		rw:       conn,
 		running:  protomap,
 		created:  mclock.Now(),
-		disc:     make(chan DiscReason),
+		disc:     make(chan types.DiscReason),
 		protoErr: make(chan error, len(protomap)+1), // protocols + pingLoop
 		closed:   make(chan struct{}),
 		log:      log.New("id", conn.node.ID(), "conn", conn.flags),
@@ -199,7 +179,7 @@ func (p *Peer) run() (remoteRequested bool, err error) {
 		writeStart = make(chan struct{}, 1)
 		writeErr   = make(chan error, 1)
 		readErr    = make(chan error, 1)
-		reason     DiscReason // sent to the peer
+		reason     types.DiscReason // sent to the peer
 	)
 	p.wg.Add(2)
 	go p.readLoop(readErr)
@@ -217,29 +197,29 @@ loop:
 			// A write finished. Allow the next write to start if
 			// there was no error.
 			if err != nil {
-				reason = DiscNetworkError
+				reason = types.DiscNetworkError
 				break loop
 			}
 			writeStart <- struct{}{}
 		case err = <-readErr:
-			if r, ok := err.(DiscReason); ok {
+			if r, ok := err.(types.DiscReason); ok {
 				remoteRequested = true
 				reason = r
 			} else {
-				reason = DiscNetworkError
+				reason = types.DiscNetworkError
 			}
 			break loop
 		case err = <-p.protoErr:
-			reason = discReasonForError(err)
+			reason = types.DiscReasonForError(err)
 			break loop
 		case err = <-p.disc:
-			reason = discReasonForError(err)
+			reason = types.DiscReasonForError(err)
 			break loop
 		}
 	}
 
 	close(p.closed)
-	p.rw.close(reason)
+	p.rw.Close(reason)
 	p.wg.Wait()
 	return remoteRequested, err
 }
@@ -251,7 +231,7 @@ func (p *Peer) pingLoop() {
 	for {
 		select {
 		case <-ping.C:
-			if err := SendItems(p.rw, pingMsg); err != nil {
+			if err := types.SendItems(p.rw, types.PingMsg); err != nil {
 				p.protoErr <- err
 				return
 			}
@@ -278,13 +258,13 @@ func (p *Peer) readLoop(errc chan<- error) {
 	}
 }
 
-func (p *Peer) handle(msg Msg) error {
+func (p *Peer) handle(msg types.Msg) error {
 	switch {
-	case msg.Code == pingMsg:
+	case msg.Code == types.PingMsg:
 		msg.Discard()
-		go SendItems(p.rw, pongMsg)
-	case msg.Code == discMsg:
-		var reason [1]DiscReason
+		go types.SendItems(p.rw, types.PongMsg)
+	case msg.Code == types.DiscMsg:
+		var reason [1]types.DiscReason
 		// This is the last message. We don't need to discard or
 		// check errors because, the connection will be closed after it.
 		rlp.Decode(msg.Payload, &reason)
@@ -308,7 +288,7 @@ func (p *Peer) handle(msg Msg) error {
 	return nil
 }
 
-func countMatchingProtocols(protocols []Protocol, caps []Cap) int {
+func countMatchingProtocols(protocols []Protocol, caps []types.Cap) int {
 	n := 0
 	for _, cap := range caps {
 		for _, proto := range protocols {
@@ -321,7 +301,7 @@ func countMatchingProtocols(protocols []Protocol, caps []Cap) int {
 }
 
 // matchProtocols creates structures for matching named subprotocols.
-func matchProtocols(protocols []Protocol, caps []Cap, rw MsgReadWriter) map[string]*protoRW {
+func matchProtocols(protocols []Protocol, caps []types.Cap, rw types.MsgReadWriter) map[string]*protoRW {
 	sort.Sort(capsByNameAndVersion(caps))
 	offset := baseProtocolLength
 	result := make(map[string]*protoRW)
@@ -335,7 +315,7 @@ outer:
 					offset -= old.Length
 				}
 				// Assign the new match
-				result[cap.Name] = &protoRW{Protocol: proto, offset: offset, in: make(chan Msg), w: rw}
+				result[cap.Name] = &protoRW{Protocol: proto, offset: offset, in: make(chan types.Msg), w: rw}
 				offset += proto.Length
 
 				continue outer
@@ -352,7 +332,7 @@ func (p *Peer) startProtocols(writeStart <-chan struct{}, writeErr chan<- error)
 		proto.closed = p.closed
 		proto.wstart = writeStart
 		proto.werr = writeErr
-		var rw MsgReadWriter = proto
+		var rw types.MsgReadWriter = proto
 		if p.events != nil {
 			rw = newMsgEventer(rw, p.events, p.ID(), proto.Name)
 		}
@@ -361,7 +341,7 @@ func (p *Peer) startProtocols(writeStart <-chan struct{}, writeErr chan<- error)
 			err := proto.Run(p, rw)
 			if err == nil {
 				p.log.Trace(fmt.Sprintf("Protocol %s/%d returned", proto.Name, proto.Version))
-				err = errProtocolReturned
+				err = types.ErrProtocolReturned
 			} else if err != io.EOF {
 				p.log.Trace(fmt.Sprintf("Protocol %s/%d failed", proto.Name, proto.Version), "err", err)
 			}
@@ -379,22 +359,22 @@ func (p *Peer) getProto(code uint64) (*protoRW, error) {
 			return proto, nil
 		}
 	}
-	return nil, newPeerError(errInvalidMsgCode, "%d", code)
+	return nil, types.NewPeerError(types.ErrInvalidMsgCode, "%d", code)
 }
 
 type protoRW struct {
 	Protocol
-	in     chan Msg        // receives read messages
+	in     chan types.Msg        // receives read messages
 	closed <-chan struct{} // receives when peer is shutting down
 	wstart <-chan struct{} // receives when write may start
 	werr   chan<- error    // for write results
 	offset uint64
-	w      MsgWriter
+	w      types.MsgWriter
 }
 
-func (rw *protoRW) WriteMsg(msg Msg) (err error) {
+func (rw *protoRW) WriteMsg(msg types.Msg) (err error) {
 	if msg.Code >= rw.Length {
-		return newPeerError(errInvalidMsgCode, "not handled")
+		return types.NewPeerError(types.ErrInvalidMsgCode, "not handled")
 	}
 	msg.Code += rw.offset
 	select {
@@ -411,13 +391,13 @@ func (rw *protoRW) WriteMsg(msg Msg) (err error) {
 	return err
 }
 
-func (rw *protoRW) ReadMsg() (Msg, error) {
+func (rw *protoRW) ReadMsg() (types.Msg, error) {
 	select {
 	case msg := <-rw.in:
 		msg.Code -= rw.offset
 		return msg, nil
 	case <-rw.closed:
-		return Msg{}, io.EOF
+		return types.Msg{}, io.EOF
 	}
 }
 
@@ -473,4 +453,68 @@ func (p *Peer) Info() *PeerInfo {
 		info.Protocols[proto.Name] = protoInfo
 	}
 	return info
+}
+
+// msgEventer wraps a MsgReadWriter and sends events whenever a message is sent
+// or received
+type msgEventer struct {
+	types.MsgReadWriter
+
+	feed     *event.Feed
+	peerID   enode.ID
+	Protocol string
+}
+
+// newMsgEventer returns a msgEventer which sends message events to the given
+// feed
+func newMsgEventer(rw types.MsgReadWriter, feed *event.Feed, peerID enode.ID, proto string) *msgEventer {
+	return &msgEventer{
+		MsgReadWriter: rw,
+		feed:          feed,
+		peerID:        peerID,
+		Protocol:      proto,
+	}
+}
+
+// ReadMsg reads a message from the underlying MsgReadWriter and emits a
+// "message received" event
+func (ev *msgEventer) ReadMsg() (types.Msg, error) {
+	msg, err := ev.MsgReadWriter.ReadMsg()
+	if err != nil {
+		return msg, err
+	}
+	ev.feed.Send(&PeerEvent{
+		Type:     PeerEventTypeMsgRecv,
+		Peer:     ev.peerID,
+		Protocol: ev.Protocol,
+		MsgCode:  &msg.Code,
+		MsgSize:  &msg.Size,
+	})
+	return msg, nil
+}
+
+// WriteMsg writes a message to the underlying MsgReadWriter and emits a
+// "message sent" event
+func (ev *msgEventer) WriteMsg(msg types.Msg) error {
+	err := ev.MsgReadWriter.WriteMsg(msg)
+	if err != nil {
+		return err
+	}
+	ev.feed.Send(&PeerEvent{
+		Type:     PeerEventTypeMsgSend,
+		Peer:     ev.peerID,
+		Protocol: ev.Protocol,
+		MsgCode:  &msg.Code,
+		MsgSize:  &msg.Size,
+	})
+	return nil
+}
+
+// Close closes the underlying MsgReadWriter if it implements the io.Closer
+// interface
+func (ev *msgEventer) Close() error {
+	if v, ok := ev.MsgReadWriter.(io.Closer); ok {
+		return v.Close()
+	}
+	return nil
 }

@@ -14,45 +14,16 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-package p2p
+package types
 
 import (
 	"errors"
 	"fmt"
 )
 
-const (
-	errInvalidMsgCode = iota
-	errInvalidMsg
-)
 
-var errorToString = map[int]string{
-	errInvalidMsgCode: "invalid message code",
-	errInvalidMsg:     "invalid message",
-}
 
-type peerError struct {
-	code    int
-	message string
-}
-
-func newPeerError(code int, format string, v ...interface{}) *peerError {
-	desc, ok := errorToString[code]
-	if !ok {
-		panic("invalid error code")
-	}
-	err := &peerError{code, desc}
-	if format != "" {
-		err.message += ": " + fmt.Sprintf(format, v...)
-	}
-	return err
-}
-
-func (pe *peerError) Error() string {
-	return pe.message
-}
-
-var errProtocolReturned = errors.New("protocol returned")
+var ErrProtocolReturned = errors.New("protocol returned")
 
 type DiscReason uint
 
@@ -99,17 +70,17 @@ func (d DiscReason) Error() string {
 	return d.String()
 }
 
-func discReasonForError(err error) DiscReason {
+func DiscReasonForError(err error) DiscReason {
 	if reason, ok := err.(DiscReason); ok {
 		return reason
 	}
-	if err == errProtocolReturned {
+	if err == ErrProtocolReturned {
 		return DiscQuitting
 	}
-	peerError, ok := err.(*peerError)
+	peerError, ok := err.(*PeerError)
 	if ok {
 		switch peerError.code {
-		case errInvalidMsgCode, errInvalidMsg:
+		case ErrInvalidMsgCode, ErrInvalidMsg:
 			return DiscProtocolError
 		default:
 			return DiscSubprotocolError

@@ -20,6 +20,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	types2 "github.com/ethereum/go-ethereum/p2p/types"
 	"math/big"
 	"sync"
 	"time"
@@ -231,7 +232,7 @@ func (pm *ProtocolManager) Stop() {
 }
 
 // runPeer is the p2p protocol run function for the given version.
-func (pm *ProtocolManager) runPeer(version uint, p *p2p.Peer, rw p2p.MsgReadWriter) error {
+func (pm *ProtocolManager) runPeer(version uint, p *p2p.Peer, rw types2.MsgReadWriter) error {
 	var entry *poolEntry
 	peer := pm.newPeer(int(version), pm.networkId, p, rw)
 	if pm.serverPool != nil {
@@ -251,11 +252,11 @@ func (pm *ProtocolManager) runPeer(version uint, p *p2p.Peer, rw p2p.MsgReadWrit
 		if entry != nil {
 			pm.serverPool.disconnect(entry)
 		}
-		return p2p.DiscQuitting
+		return types2.DiscQuitting
 	}
 }
 
-func (pm *ProtocolManager) newPeer(pv int, nv uint64, p *p2p.Peer, rw p2p.MsgReadWriter) *peer {
+func (pm *ProtocolManager) newPeer(pv int, nv uint64, p *p2p.Peer, rw types2.MsgReadWriter) *peer {
 	var isTrusted bool
 	if pm.isULCEnabled() {
 		isTrusted = pm.ulc.isTrusted(p.ID())
@@ -269,7 +270,7 @@ func (pm *ProtocolManager) handle(p *peer) error {
 	// Ignore maxPeers if this is a trusted peer
 	// In server mode we try to check into the client pool after handshake
 	if pm.lightSync && pm.peers.Len() >= pm.maxPeers && !p.Peer.Info().Network.Trusted {
-		return p2p.DiscTooManyPeers
+		return types2.DiscTooManyPeers
 	}
 
 	p.Log().Debug("Light Ethereum peer connected", "name", p.Name())

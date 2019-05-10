@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-package p2p
+package rlpx
 
 import (
 	"bytes"
@@ -27,6 +27,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/p2p/types"
 	"hash"
 	"io"
 	"io/ioutil"
@@ -44,7 +45,40 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
+type Transport interface {
+	// The two handshakes.
+	DoEncHandshake(prv *ecdsa.PrivateKey, dialDest *ecdsa.PublicKey) (*ecdsa.PublicKey, error)
+	DoProtoHandshake(our *ProtoHandshake) (*ProtoHandshake, error)
+	// The MsgReadWriter can only be used after the encryption
+	// handshake has completed. The code uses conn.id to track this
+	// by setting it to a non-nil value after the encryption handshake.
+	types.MsgReadWriter
+	// Transports must provide Close because we use MsgPipe in some of
+	// the tests. Closing the actual network connection doesn't do
+	// anything in those tests because MsgPipe doesn't use it.
+	Close(err error)
+}
+
+// ProtoHandshake is the RLP structure of the protocol handshake.
+type ProtoHandshake struct {
+	Version    uint64
+	Name       string
+	Caps       []types.Cap
+	ListenPort uint64
+	ID         []byte // secp256k1 public key
+
+	// Ignore additional fields (for forward compatibility).
+	Rest []rlp.RawValue `rlp:"tail"`
+}
+
 const (
+	// Maximum time allowed for reading a complete message.
+	// This is effectively the amount of time a connection can be idle.
+	frameReadTimeout = 30 * time.Second
+
+	// Maximum amount of time allowed for writing a complete message.
+	frameWriteTimeout = 20 * time.Second
+
 	maxUint24 = ^uint32(0) >> 8
 
 	sskLen = 16 // ecies.MaxSharedKeyLength(pubKey) / 2
@@ -68,6 +102,9 @@ const (
 	// This is shorter than the usual timeout because we don't want
 	// to wait if the connection is known to be bad anyway.
 	discWriteTimeout = 1 * time.Second
+
+	snappyProtocolVersion = 5
+	baseProtocolMaxMsgSize = 2 * 1024
 )
 
 // errPlainMessageTooLarge is returned if a decompressed message length exceeds
@@ -83,51 +120,51 @@ type rlpx struct {
 	rw       *rlpxFrameRW
 }
 
-func newRLPX(fd net.Conn) transport {
+func NewRLPX(fd net.Conn) Transport {
 	fd.SetDeadline(time.Now().Add(handshakeTimeout))
 	return &rlpx{fd: fd}
 }
 
-func (t *rlpx) ReadMsg() (Msg, error) {
+func (t *rlpx) ReadMsg() (types.Msg, error) {
 	t.rmu.Lock()
 	defer t.rmu.Unlock()
 	t.fd.SetReadDeadline(time.Now().Add(frameReadTimeout))
 	return t.rw.ReadMsg()
 }
 
-func (t *rlpx) WriteMsg(msg Msg) error {
+func (t *rlpx) WriteMsg(msg types.Msg) error {
 	t.wmu.Lock()
 	defer t.wmu.Unlock()
 	t.fd.SetWriteDeadline(time.Now().Add(frameWriteTimeout))
 	return t.rw.WriteMsg(msg)
 }
 
-func (t *rlpx) close(err error) {
+func (t *rlpx) Close(err error) {
 	t.wmu.Lock()
 	defer t.wmu.Unlock()
 	// Tell the remote end why we're disconnecting if possible.
 	if t.rw != nil {
-		if r, ok := err.(DiscReason); ok && r != DiscNetworkError {
+		if r, ok := err.(types.DiscReason); ok && r != types.DiscNetworkError {
 			// rlpx tries to send DiscReason to disconnected peer
 			// if the connection is net.Pipe (in-memory simulation)
 			// it hangs forever, since net.Pipe does not implement
 			// a write deadline. Because of this only try to send
 			// the disconnect reason message if there is no error.
 			if err := t.fd.SetWriteDeadline(time.Now().Add(discWriteTimeout)); err == nil {
-				SendItems(t.rw, discMsg, r)
+				types.SendItems(t.rw, types.DiscMsg, r)
 			}
 		}
 	}
 	t.fd.Close()
 }
 
-func (t *rlpx) doProtoHandshake(our *protoHandshake) (their *protoHandshake, err error) {
+func (t *rlpx) DoProtoHandshake(our *ProtoHandshake) (their *ProtoHandshake, err error) {
 	// Writing our handshake happens concurrently, we prefer
 	// returning the handshake read error. If the remote side
 	// disconnects us early with a valid reason, we should return it
 	// as the error so it can be tracked elsewhere.
 	werr := make(chan error, 1)
-	go func() { werr <- Send(t.rw, handshakeMsg, our) }()
+	go func() { werr <- types.Send(t.rw, types.HandshakeMsg, our) }()
 	if their, err = readProtocolHandshake(t.rw); err != nil {
 		<-werr // make sure the write terminates too
 		return nil, err
@@ -141,7 +178,7 @@ func (t *rlpx) doProtoHandshake(our *protoHandshake) (their *protoHandshake, err
 	return their, nil
 }
 
-func readProtocolHandshake(rw MsgReader) (*protoHandshake, error) {
+func readProtocolHandshake(rw types.MsgReader) (*ProtoHandshake, error) {
 	msg, err := rw.ReadMsg()
 	if err != nil {
 		return nil, err
@@ -149,33 +186,33 @@ func readProtocolHandshake(rw MsgReader) (*protoHandshake, error) {
 	if msg.Size > baseProtocolMaxMsgSize {
 		return nil, fmt.Errorf("message too big")
 	}
-	if msg.Code == discMsg {
+	if msg.Code == types.DiscMsg {
 		// Disconnect before protocol handshake is valid according to the
 		// spec and we send it ourself if the post-handshake checks fail.
 		// We can't return the reason directly, though, because it is echoed
 		// back otherwise. Wrap it in a string instead.
-		var reason [1]DiscReason
+		var reason [1]types.DiscReason
 		rlp.Decode(msg.Payload, &reason)
 		return nil, reason[0]
 	}
-	if msg.Code != handshakeMsg {
+	if msg.Code != types.HandshakeMsg {
 		return nil, fmt.Errorf("expected handshake, got %x", msg.Code)
 	}
-	var hs protoHandshake
+	var hs ProtoHandshake
 	if err := msg.Decode(&hs); err != nil {
 		return nil, err
 	}
 	if len(hs.ID) != 64 || !bitutil.TestBytes(hs.ID) {
-		return nil, DiscInvalidIdentity
+		return nil, types.DiscInvalidIdentity
 	}
 	return &hs, nil
 }
 
-// doEncHandshake runs the protocol handshake using authenticated
+// DoEncHandshake runs the protocol handshake using authenticated
 // messages. the protocol handshake is the first authenticated message
 // and also verifies whether the encryption handshake 'worked' and the
 // remote side actually provided the right public key.
-func (t *rlpx) doEncHandshake(prv *ecdsa.PrivateKey, dial *ecdsa.PublicKey) (*ecdsa.PublicKey, error) {
+func (t *rlpx) DoEncHandshake(prv *ecdsa.PrivateKey, dial *ecdsa.PublicKey) (*ecdsa.PublicKey, error) {
 	var (
 		sec secrets
 		err error
@@ -189,7 +226,7 @@ func (t *rlpx) doEncHandshake(prv *ecdsa.PrivateKey, dial *ecdsa.PublicKey) (*ec
 		return nil, err
 	}
 	t.wmu.Lock()
-	t.rw = newRLPXFrameRW(t.fd, sec)
+	t.rw = NewRLPXFrameRW(t.fd, sec)
 	t.wmu.Unlock()
 	return sec.Remote.ExportECDSA(), nil
 }
@@ -567,7 +604,7 @@ type rlpxFrameRW struct {
 	snappy bool
 }
 
-func newRLPXFrameRW(conn io.ReadWriter, s secrets) *rlpxFrameRW {
+func NewRLPXFrameRW(conn io.ReadWriter, s secrets) *rlpxFrameRW {
 	macc, err := aes.NewCipher(s.MAC)
 	if err != nil {
 		panic("invalid MAC secret: " + err.Error())
@@ -589,7 +626,7 @@ func newRLPXFrameRW(conn io.ReadWriter, s secrets) *rlpxFrameRW {
 	}
 }
 
-func (rw *rlpxFrameRW) WriteMsg(msg Msg) error {
+func (rw *rlpxFrameRW) WriteMsg(msg types.Msg) error {
 	ptype, _ := rlp.EncodeToBytes(msg.Code)
 
 	// if snappy is enabled, compress message now
@@ -642,7 +679,7 @@ func (rw *rlpxFrameRW) WriteMsg(msg Msg) error {
 	return err
 }
 
-func (rw *rlpxFrameRW) ReadMsg() (msg Msg, err error) {
+func (rw *rlpxFrameRW) ReadMsg() (msg types.Msg, err error) {
 	// read the header
 	headbuf := make([]byte, 32)
 	if _, err := io.ReadFull(rw.conn, headbuf); err != nil {

@@ -519,3 +519,21 @@ func TestTransactionStatusLes2(t *testing.T) {
 	test(tx1, false, txStatus{Status: core.TxStatusPending})
 	test(tx2, false, txStatus{Status: core.TxStatusPending})
 }
+
+func TestDeliverToServer(t *testing.T) {
+	protocol := 2
+	server, tearDown := newServerEnv(t, downloader.MaxHashFetch+15, protocol, nil)
+	defer tearDown()
+	//bc := server.pm.blockchain.(*core.BlockChain)
+	// Create a batch of tests for various scenarios
+	//limit := uint64(MaxHeaderFetch)
+	// Run each of the tests and verify the results against the chain
+	var reqID uint64
+	reqID++
+	query := &getBlockHeadersData{Origin: hashOrNumber{}, Skip: 3, Amount: 3, Reverse: true}
+	sendRequest(server.tPeer.app, BlockHeadersMsg, reqID, 0, query)
+
+}
+func TestUpdateFCCosts(t *testing.T){
+
+}

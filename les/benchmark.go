@@ -19,6 +19,7 @@ package les
 import (
 	"encoding/binary"
 	"fmt"
+	types2 "github.com/ethereum/go-ethereum/p2p/types"
 	"math/big"
 	"math/rand"
 	"time"
@@ -258,15 +259,15 @@ func (pm *ProtocolManager) runBenchmark(benchmarks []requestBenchmark, passCount
 // meteredPipe implements p2p.MsgReadWriter and remembers the largest single
 // message size sent through the pipe
 type meteredPipe struct {
-	rw      p2p.MsgReadWriter
+	rw      types2.MsgReadWriter
 	maxSize uint32
 }
 
-func (m *meteredPipe) ReadMsg() (p2p.Msg, error) {
+func (m *meteredPipe) ReadMsg() (types2.Msg, error) {
 	return m.rw.ReadMsg()
 }
 
-func (m *meteredPipe) WriteMsg(msg p2p.Msg) error {
+func (m *meteredPipe) WriteMsg(msg types2.Msg) error {
 	if msg.Size > m.maxSize {
 		m.maxSize = msg.Size
 	}
@@ -276,7 +277,7 @@ func (m *meteredPipe) WriteMsg(msg p2p.Msg) error {
 // measure runs a benchmark for a single type in a single pass, with the given
 // number of requests
 func (pm *ProtocolManager) measure(setup *benchmarkSetup, count int) error {
-	clientPipe, serverPipe := p2p.MsgPipe()
+	clientPipe, serverPipe := types2.MsgPipe()
 	clientMeteredPipe := &meteredPipe{rw: clientPipe}
 	serverMeteredPipe := &meteredPipe{rw: serverPipe}
 	var id enode.ID

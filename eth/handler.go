@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	types2 "github.com/ethereum/go-ethereum/p2p/types"
 	"math"
 	"math/big"
 	"sync"
@@ -146,7 +147,7 @@ func NewProtocolManager(config *params.ChainConfig, mode downloader.SyncMode, ne
 			Name:    ProtocolName,
 			Version: version,
 			Length:  ProtocolLengths[i],
-			Run: func(p *p2p.Peer, rw p2p.MsgReadWriter) error {
+			Run: func(p *p2p.Peer, rw types2.MsgReadWriter) error {
 				peer := manager.newPeer(int(version), p, rw)
 				select {
 				case manager.newPeerCh <- peer:
@@ -154,7 +155,7 @@ func NewProtocolManager(config *params.ChainConfig, mode downloader.SyncMode, ne
 					defer manager.wg.Done()
 					return manager.handle(peer)
 				case <-manager.quitSync:
-					return p2p.DiscQuitting
+					return types2.DiscQuitting
 				}
 			},
 			NodeInfo: func() interface{} {
@@ -226,7 +227,7 @@ func (pm *ProtocolManager) removePeer(id string) {
 	}
 	// Hard disconnect at the networking layer
 	if peer != nil {
-		peer.Peer.Disconnect(p2p.DiscUselessPeer)
+		peer.Peer.Disconnect(types2.DiscUselessPeer)
 	}
 }
 
@@ -272,7 +273,7 @@ func (pm *ProtocolManager) Stop() {
 	log.Info("Ethereum protocol stopped")
 }
 
-func (pm *ProtocolManager) newPeer(pv int, p *p2p.Peer, rw p2p.MsgReadWriter) *peer {
+func (pm *ProtocolManager) newPeer(pv int, p *p2p.Peer, rw types2.MsgReadWriter) *peer {
 	return newPeer(pv, p, newMeteredMsgWriter(rw))
 }
 
@@ -281,7 +282,7 @@ func (pm *ProtocolManager) newPeer(pv int, p *p2p.Peer, rw p2p.MsgReadWriter) *p
 func (pm *ProtocolManager) handle(p *peer) error {
 	// Ignore maxPeers if this is a trusted peer
 	if pm.peers.Len() >= pm.maxPeers && !p.Peer.Info().Network.Trusted {
-		return p2p.DiscTooManyPeers
+		return types2.DiscTooManyPeers
 	}
 	p.Log().Debug("Ethereum peer connected", "name", p.Name())
 

@@ -21,6 +21,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"fmt"
+	"github.com/ethereum/go-ethereum/p2p/types"
 	"math"
 	"runtime"
 	"sync"
@@ -377,7 +378,7 @@ func (whisper *Whisper) RequestHistoricMessages(peerID []byte, envelope *Envelop
 		return err
 	}
 	p.trusted = true
-	return p2p.Send(p.ws, p2pRequestCode, envelope)
+	return types.Send(p.ws, p2pRequestCode, envelope)
 }
 
 // SendP2PMessage sends a peer-to-peer message to a specific peer.
@@ -391,7 +392,7 @@ func (whisper *Whisper) SendP2PMessage(peerID []byte, envelope *Envelope) error 
 
 // SendP2PDirect sends a peer-to-peer message to a specific peer.
 func (whisper *Whisper) SendP2PDirect(peer *Peer, envelope *Envelope) error {
-	return p2p.Send(peer.ws, p2pMessageCode, envelope)
+	return types.Send(peer.ws, p2pMessageCode, envelope)
 }
 
 // NewKeyPair generates a new cryptographic identity for the client, and injects
@@ -646,7 +647,7 @@ func (whisper *Whisper) Stop() error {
 
 // HandlePeer is called by the underlying P2P layer when the whisper sub-protocol
 // connection is negotiated.
-func (whisper *Whisper) HandlePeer(peer *p2p.Peer, rw p2p.MsgReadWriter) error {
+func (whisper *Whisper) HandlePeer(peer *p2p.Peer, rw types.MsgReadWriter) error {
 	// Create the new peer and start tracking it
 	whisperPeer := newPeer(whisper, peer, rw)
 
@@ -671,7 +672,7 @@ func (whisper *Whisper) HandlePeer(peer *p2p.Peer, rw p2p.MsgReadWriter) error {
 }
 
 // runMessageLoop reads and processes inbound messages directly to merge into client-global state.
-func (whisper *Whisper) runMessageLoop(p *Peer, rw p2p.MsgReadWriter) error {
+func (whisper *Whisper) runMessageLoop(p *Peer, rw types.MsgReadWriter) error {
 	for {
 		// fetch the next packet
 		packet, err := rw.ReadMsg()

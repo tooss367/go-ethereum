@@ -17,10 +17,10 @@
 package p2p
 
 import (
-	"fmt"
 
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/p2p/enr"
+	"github.com/ethereum/go-ethereum/p2p/types"
 )
 
 // Protocol represents a P2P subprotocol implementation.
@@ -43,7 +43,7 @@ type Protocol struct {
 	// The peer connection is closed when Start returns. It should return
 	// any protocol-level error (such as an I/O error) that is
 	// encountered.
-	Run func(peer *Peer, rw MsgReadWriter) error
+	Run func(peer *Peer, rw types.MsgReadWriter) error
 
 	// NodeInfo is an optional helper method to retrieve protocol specific metadata
 	// about the host node.
@@ -58,21 +58,11 @@ type Protocol struct {
 	Attributes []enr.Entry
 }
 
-func (p Protocol) cap() Cap {
-	return Cap{p.Name, p.Version}
+func (p Protocol) cap() types.Cap {
+	return types.Cap{p.Name, p.Version}
 }
 
-// Cap is the structure of a peer capability.
-type Cap struct {
-	Name    string
-	Version uint
-}
-
-func (cap Cap) String() string {
-	return fmt.Sprintf("%s/%d", cap.Name, cap.Version)
-}
-
-type capsByNameAndVersion []Cap
+type capsByNameAndVersion []types.Cap
 
 func (cs capsByNameAndVersion) Len() int      { return len(cs) }
 func (cs capsByNameAndVersion) Swap(i, j int) { cs[i], cs[j] = cs[j], cs[i] }
