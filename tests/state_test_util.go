@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"strconv"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -109,6 +110,33 @@ type stTransactionMarshaling struct {
 	PrivateKey hexutil.Bytes
 }
 
+// getVMConfig takes a fork definition and returns a chain config.
+// The fork definition can be
+// - a plain forkname, e.g. `Byzantium`,
+// - a fork basename, and a list of EIPs to enable; e.g. `Byzantium+1884+1283`.
+func getVMConfig(forkString string) (*params.ChainConfig, error){
+	splitForks := strings.Split(forkString, "+")
+	baseName, eips := splitForks[0], splitForks[1:]
+	baseConfig, ok := Forks[baseName]
+	if !ok {
+		return nil, UnsupportedForkError{subtest.Fork}
+	}
+	if len(eips) == 0{
+		return baseConfig, nil
+	}
+	for _, eip := range eips{
+		eipNum, err := strconv.Atoi(eip)
+		if err != nil{
+			return nil, fmt.Errorf("syntax error, invalid eip number %v", eip)
+		}
+		if err := baseConfig.EnableEip(eipNum,0); err != nil{
+			return nil, err
+		}
+	}
+	return baseConfig, nil
+}
+
+
 // Subtests returns all valid subtests of the test.
 func (t *StateTest) Subtests() []StateSubtest {
 	var sub []StateSubtest
@@ -122,9 +150,9 @@ func (t *StateTest) Subtests() []StateSubtest {
 
 // Run executes a specific subtest.
 func (t *StateTest) Run(subtest StateSubtest, vmconfig vm.Config) (*state.StateDB, error) {
-	config, ok := Forks[subtest.Fork]
-	if !ok {
-		return nil, UnsupportedForkError{subtest.Fork}
+	config, err := getVMConfig(subtest.Fork)
+	if err != nil{
+		return err
 	}
 	block := t.genesis(config).ToBlock(nil)
 	statedb := MakePreState(rawdb.NewMemoryDatabase(), t.json.Pre)

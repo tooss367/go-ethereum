@@ -36,6 +36,14 @@ type GasTable struct {
 	CreateBySuicide uint64
 }
 
+func (gt *GasTable) Set(op, gas uint64) *GasTable {
+	gt[op] = gas
+	return gt
+}
+func copyGT(GasTable g) *GasTable {
+	return &g
+}
+
 // Variables containing gas prices for different ethereum phases.
 var (
 	// GasTableHomestead contain the gas prices for
@@ -52,46 +60,28 @@ var (
 
 	// GasTableEIP150 contain the gas re-prices for
 	// the EIP150 phase.
-	GasTableEIP150 = GasTable{
-		ExtcodeSize: 700,
-		ExtcodeCopy: 700,
-		Balance:     400,
-		SLoad:       200,
-		Calls:       700,
-		Suicide:     5000,
-		ExpByte:     10,
+	GasTableEIP150 = copyGT(GasTableHomestead).
+			Set(ExtcodeSize, 700).
+			Set(ExtcodeCopy, 700).
+			Set(Balance, 400).
+			Set(SLoad, 200).
+			Set(Calls, 700).
+			Set(Suicide, 5000).
+			Set(ExpByte, 10).
+			Set(CreateBySuicide, 25000)
 
-		CreateBySuicide: 25000,
-	}
 	// GasTableEIP158 contain the gas re-prices for
 	// the EIP155/EIP158 phase.
-	GasTableEIP158 = GasTable{
-		ExtcodeSize: 700,
-		ExtcodeCopy: 700,
-		Balance:     400,
-		SLoad:       200,
-		Calls:       700,
-		Suicide:     5000,
-		ExpByte:     50,
+	GasTableEIP158 = copyGT(GasTableEIP150).
+		Set(ExpByte, 50)
 
-		CreateBySuicide: 25000,
-	}
 	// GasTableConstantinople contain the gas re-prices for
 	// the constantinople phase.
-	GasTableConstantinople = GasTable{
-		ExtcodeSize: 700,
-		ExtcodeCopy: 700,
-		ExtcodeHash: 400,
-		Balance:     400,
-		SLoad:       200,
-		Calls:       700,
-		Suicide:     5000,
-		ExpByte:     50,
+	GasTableConstantinople = copyGT(GasTableEIP158).
+		Set(ExtcodeHash: 400)
 
-		CreateBySuicide: 25000,
-	}
-	// GasTableEipIstanbul contain the gas re-prices for EIP 1884
-	GasTableEipIstanbul = GasTable{
+	// GasTableIstanbul contain the gas re-prices for EIP 1884
+	GasTableIstanbul = GasTable{
 		ExtcodeSize:     700,
 		ExtcodeCopy:     700,
 		ExtcodeHash:     400,

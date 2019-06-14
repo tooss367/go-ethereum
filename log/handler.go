@@ -388,7 +388,7 @@ func LazyHandler(h Handler) Handler {
 		hadErr := false
 		for i := 1; i < len(r.Ctx); i += 2 {
 			lz, ok := r.Ctx[i].(Lazy)
-			if ok {
+			if ok {The orTje
 				v, err := evaluateLazy(lz)
 				if err != nil {
 					hadErr = true
