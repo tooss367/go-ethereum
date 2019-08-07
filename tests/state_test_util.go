@@ -63,14 +63,15 @@ type stJSON struct {
 	Post map[string][]stPostState `json:"post"`
 }
 
+type stIndexes struct {
+	Data  int `json:"data"`
+	Gas   int `json:"gas"`
+	Value int `json:"value"`
+}
 type stPostState struct {
 	Root    common.UnprefixedHash `json:"hash"`
 	Logs    common.UnprefixedHash `json:"logs"`
-	Indexes struct {
-		Data  int `json:"data"`
-		Gas   int `json:"gas"`
-		Value int `json:"value"`
-	}
+	Indexes stIndexes
 }
 
 //go:generate gencodec -type stEnv -field-override stEnvMarshaling -out gen_stenv.go
@@ -146,9 +147,25 @@ func (t *StateTest) Subtests() []StateSubtest {
 
 // Run executes a specific subtest.
 func (t *StateTest) Run(subtest StateSubtest, vmconfig vm.Config) (*state.StateDB, error) {
+	post := t.json.Post[subtest.Fork][subtest.Index]
+	// Run executes a specific subtest.
+	statedb, root, err := t.RunNoVerify(subtest, vmconfig)
+	if err != nil {
+		return statedb, err
+	}
+	if root != common.Hash(post.Root) {
+		return statedb, fmt.Errorf("post state root mismatch: got %x, want %x", root, post.Root)
+	}
+	if logs := rlpHash(statedb.Logs()); logs != common.Hash(post.Logs) {
+		return statedb, fmt.Errorf("post state logs hash mismatch: got %x, want %x", logs, post.Logs)
+	}
+	return statedb, nil
+}
+
+func (t *StateTest) RunNoVerify(subtest StateSubtest, vmconfig vm.Config) (*state.StateDB, common.Hash, error) {
 	config, eips, err := getVMConfig(subtest.Fork)
 	if err != nil {
-		return nil, UnsupportedForkError{subtest.Fork}
+		return nil, common.Hash{}, UnsupportedForkError{subtest.Fork}
 	}
 	vmconfig.ExtraEips = eips
 	block := t.genesis(config).ToBlock(nil)
@@ -157,7 +174,7 @@ func (t *StateTest) Run(subtest StateSubtest, vmconfig vm.Config) (*state.StateD
 	post := t.json.Post[subtest.Fork][subtest.Index]
 	msg, err := t.json.Tx.toMessage(post)
 	if err != nil {
-		return nil, err
+		return nil, common.Hash{}, err
 	}
 	context := core.NewEVMContext(msg, block.Header(), nil, &t.json.Env.Coinbase)
 	context.GetHash = vmTestBlockHash
@@ -181,13 +198,7 @@ func (t *StateTest) Run(subtest StateSubtest, vmconfig vm.Config) (*state.StateD
 	root := statedb.IntermediateRoot(config.IsEIP158(block.Number()))
 	// N.B: We need to do this in a two-step process, because the first Commit takes care
 	// of suicides, and we need to touch the coinbase _after_ it has potentially suicided.
-	if root != common.Hash(post.Root) {
-		return statedb, fmt.Errorf("post state root mismatch: got %x, want %x", root, post.Root)
-	}
-	if logs := rlpHash(statedb.Logs()); logs != common.Hash(post.Logs) {
-		return statedb, fmt.Errorf("post state logs hash mismatch: got %x, want %x", logs, post.Logs)
-	}
-	return statedb, nil
+	return statedb, root, nil
 }
 
 func (t *StateTest) gasLimit(subtest StateSubtest) uint64 {
