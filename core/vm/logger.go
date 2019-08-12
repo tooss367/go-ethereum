@@ -49,6 +49,7 @@ type LogConfig struct {
 	DisableStorage bool // disable storage capture
 	Debug          bool // print output during capture end
 	Limit          int  // maximum length of output, but zero means unlimited
+	IgnoreTime     bool // disable execution time logging
 }
 
 //go:generate gencodec -type StructLog -field-override structLogMarshaling -out gen_structlog.go

@@ -18,13 +18,6 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 )
 
-func TestGenerator(t *testing.T) {
-	err := GenerateTest()
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
 // stTrace is used to store testcase traces
 type stTrace struct {
 	Trace   string `json:"trace"`
@@ -37,16 +30,71 @@ type stDump struct {
 	Indexes stIndexes
 }
 
-func GenerateTest() error {
+func testSelfbalance() error {
 	// This code snippet stores selfbalance at slot 1
 	code := []byte{
 		byte(vm.SELFBALANCE),
 		byte(vm.PUSH1), 0x01,
 		byte(vm.SSTORE),
 	}
-	doGenerate("selfbalance", code, big.NewInt(1000000), big.NewInt(500))
+	return doGenerate(1884, "selfbalance", code, big.NewInt(1000000), big.NewInt(500), []string{"0x0", "0xFF"})
 }
-func doGenerate(name string, targetCode []byte, senderBalance, targetBalance *big.Int) error {
+
+func testBalanceEqSelfbalance() error {
+	// This code snippet checks that balance(self) == selfbalance
+	code := []byte{
+		byte(vm.ADDRESS),
+		byte(vm.BALANCE),
+		byte(vm.SELFBALANCE),
+		byte(vm.EQ),
+		byte(vm.PUSH1), 0x01,
+		byte(vm.SSTORE),
+	}
+	return doGenerate(1884, "selfbalanceEqBalance", []byte(code), big.NewInt(1000000), big.NewInt(500), []string{"0x0", "0xFF"})
+}
+
+func testGasCostOfSload() error {
+	// This code snippet checks that SLOAD costs 800, it stores the cost of SLOAD + DUP1
+	// at storage slot 1 (should be 805, or 0x325)
+	code := []byte{ // stack post operation
+
+		byte(vm.GAS),   // [gas]
+		byte(vm.DUP1),  // [gas. gas]
+		byte(vm.SLOAD), // [gas, 0]
+
+		byte(vm.GAS),   // [gas, 0, gas2]
+		byte(vm.SWAP1), // [gas, gas2, 0]
+		byte(vm.POP),   // [gas, gas2, 0]
+		byte(vm.SWAP1), // [gas2, gas]
+		byte(vm.SUB),   // [gas - gas2 (805?)]
+		byte(vm.PUSH1), 0x01,
+		byte(vm.SSTORE),
+	}
+	return doGenerate(1884, "sloadGasCost", []byte(code), big.NewInt(1000000), big.NewInt(500), []string{"0x0"})
+}
+
+func test1344() error {
+	// This code stores CHAINID at slot 0x01
+	code := []byte{
+		byte(vm.CHAINID),
+		byte(vm.PUSH1), 0x01,
+		byte(vm.SSTORE),
+	}
+	return doGenerate(1344, "chainid", code, big.NewInt(1000000), big.NewInt(500), []string{"0x0"})
+}
+
+func TestGenerator(t *testing.T) {
+	for _, testcase := range []func() error{
+		testSelfbalance, testBalanceEqSelfbalance, testGasCostOfSload, test1344} {
+		err := testcase()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+	}
+}
+
+func doGenerate(eip int, name string, targetCode []byte, senderBalance, targetBalance *big.Int, v []string) error {
 	var (
 		dumps  = make(map[string][]stDump)
 		traces = make(map[string][]stTrace)
@@ -61,6 +109,8 @@ func doGenerate(name string, targetCode []byte, senderBalance, targetBalance *bi
 		return fmt.Errorf("invalid private key: %v", err)
 	}
 	caller := crypto.PubkeyToAddress(callerPkey.PublicKey)
+	// define coinbase
+	coinbase := common.HexToAddress("0xba5e")
 
 	// Place target and caller into prestate
 	prestate := make(core.GenesisAlloc)
@@ -71,11 +121,13 @@ func doGenerate(name string, targetCode []byte, senderBalance, targetBalance *bi
 	prestate[caller] = core.GenesisAccount{
 		Balance: senderBalance,
 	}
-
+	prestate[coinbase] = core.GenesisAccount{
+		Balance: new(big.Int),
+		Nonce:   1,
+	}
 	var (
 		d = []string{"0x"}
 		g = []uint64{100000}
-		v = []string{"0x0", "0xFF"}
 	)
 	// Create the state test
 	stateTest := StateTest{
@@ -86,7 +138,7 @@ func doGenerate(name string, targetCode []byte, senderBalance, targetBalance *bi
 				GasLimit:   10000000,
 				Number:     1,
 				Difficulty: big.NewInt(0xffffffffff),
-				Coinbase:   caller,
+				Coinbase:   coinbase,
 				Timestamp:  15,
 			},
 			Tx: stTransaction{
@@ -101,7 +153,7 @@ func doGenerate(name string, targetCode []byte, senderBalance, targetBalance *bi
 	}
 	forks := []string{
 		"ConstantinopleFix",
-		"ConstantinopleFix+1884",
+		fmt.Sprintf("ConstantinopleFix+%d", eip),
 	}
 	for _, fork := range forks {
 		var postStateList []stPostState
@@ -122,9 +174,9 @@ func doGenerate(name string, targetCode []byte, senderBalance, targetBalance *bi
 		traces[fork] = traceList
 		stateTest.json.Post[fork] = postStateList
 	}
-	for index, subtest := range stateTest.Subtests() {
+	for _, subtest := range stateTest.Subtests() {
 		var traceWriter strings.Builder
-		tracer := vm.NewJSONLogger(&vm.LogConfig{true, false, true, true, 0}, &traceWriter)
+		tracer := vm.NewJSONLogger(&vm.LogConfig{true, false, true, true, 0,true}, &traceWriter)
 		statedb, root, err := stateTest.RunNoVerify(subtest, vm.Config{Tracer: tracer, Debug: true})
 		if err != nil {
 			return err
@@ -158,18 +210,17 @@ func doGenerate(name string, targetCode []byte, senderBalance, targetBalance *bi
 // saveArtefacts stores testcase, trace, dump into files
 func saveArtefacts(name string, testcase []byte, stateDump []byte, traces []byte) {
 
+	save := func(fileName string, data []byte) {
+		if err := ioutil.WriteFile(fileName, data, 0744); err != nil {
+			log.Error("Error writing file", "error", err)
+		}
+		fmt.Printf("Wrote file %v\n", fileName)
+	}
 	os.Mkdir("generated", 0700)
 	os.Mkdir("generated/GeneralStateTests", 0700)
 	os.Mkdir("generated/Dumps", 0700)
 	os.Mkdir("generated/Traces", 0700)
-	if err := ioutil.WriteFile(fmt.Sprintf("generated/GeneralStateTests/stateTest-%v.json", name), testcase, 0744); err != nil {
-		log.Error("Error writing file", "error", err)
-	}
-	if err := ioutil.WriteFile(fmt.Sprintf("generated/Dumps/stateDump-%v.json", name), stateDump, 0744); err != nil {
-		log.Error("Error writing file", "error", err)
-	}
-	if err := ioutil.WriteFile(fmt.Sprintf("generated/Traces/stateTraces-%v.json", name), traces, 0744); err != nil {
-		log.Error("Error writing file", "error", err)
-	}
-
+	save(fmt.Sprintf("generated/GeneralStateTests/stateTest-%v.json", name), testcase)
+	save(fmt.Sprintf("generated/Dumps/stateDump-%v.json", name), stateDump)
+	save(fmt.Sprintf("generated/Traces/stateTraces-%v.json", name), traces)
 }

@@ -80,8 +80,20 @@ func (l *JSONLogger) CaptureEnd(output []byte, gasUsed uint64, t time.Duration, 
 		Time    time.Duration       `json:"time"`
 		Err     string              `json:"error,omitempty"`
 	}
-	if err != nil {
-		return l.encoder.Encode(endLog{common.Bytes2Hex(output), math.HexOrDecimal64(gasUsed), t, err.Error()})
+	type endLogNoTime struct {
+		Output  string              `json:"output"`
+		GasUsed math.HexOrDecimal64 `json:"gasUsed"`
+		Err     string              `json:"error,omitempty"`
 	}
-	return l.encoder.Encode(endLog{common.Bytes2Hex(output), math.HexOrDecimal64(gasUsed), t, ""})
+	var entry interface{}
+	var errStr = ""
+	if err != nil {
+		errStr = err.Error()
+	}
+	if l.cfg.IgnoreTime {
+		entry = endLogNoTime{common.Bytes2Hex(output), math.HexOrDecimal64(gasUsed), errStr}
+	} else {
+		entry = endLog{common.Bytes2Hex(output), math.HexOrDecimal64(gasUsed), t, errStr}
+	}
+	return l.encoder.Encode(entry)
 }
