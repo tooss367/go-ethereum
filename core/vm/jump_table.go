@@ -171,7 +171,7 @@ func newTangerineWhistleInstructionSet() JumpTable {
 	instructionSet[EXTCODESIZE].constantGas = params.ExtcodeSizeGasEIP150
 	instructionSet[SLOAD].constantGas = params.SloadGasEIP150
 	instructionSet[EXTCODECOPY].constantGas = params.ExtcodeCopyBaseEIP150
-	instructionSet[CALL].constantGas = params.CallGasEIP150
+	instructionSet[CALL].constantGas = 40
 	instructionSet[CALLCODE].constantGas = params.CallGasEIP150
 	instructionSet[DELEGATECALL].constantGas = params.CallGasEIP150
 	return instructionSet
