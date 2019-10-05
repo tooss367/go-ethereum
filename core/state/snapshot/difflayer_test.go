@@ -145,3 +145,193 @@ func TestMergeDelete2(t *testing.T) {
 		t.Errorf("mem wrong, got %d, exp %d", got, exp)
 	}
 }
+
+// This tests that if we create a new account, and set a slot, and then merge
+// it, the lists will be correct
+func TestInsertAndMerge(t *testing.T){
+	// Fill up a parent
+	var(
+		acc = common.HexToHash("0x01")
+		slot = common.HexToHash("0x02")
+		parent *diffLayer
+		child *diffLayer
+	)
+
+	{
+		var accounts = make(map[common.Hash][]byte)
+		var storage  = make(map[common.Hash]map[common.Hash][]byte)
+		parent = newDiffLayer(emptyLayer{}, 1, common.Hash{}, accounts, storage)
+	}
+	{
+		var accounts = make(map[common.Hash][]byte)
+		var storage  = make(map[common.Hash]map[common.Hash][]byte)
+		accounts[acc] = randomAccount()
+		accstorage := make(map[common.Hash][]byte)
+		storage[acc] = accstorage
+		storage[acc][slot] = []byte{0x01}
+		child = newDiffLayer(parent, 2, common.Hash{}, accounts, storage)
+	}
+
+	// And flatten
+	merged := (child.flatten()).(*diffLayer)
+	if got, exp := len(merged.accountList), 1; got != exp {
+		t.Errorf("accountList wrong, got %v exp %v", got, exp)
+	}
+	if got, exp := len(merged.storageList), 1; got != exp {
+		t.Errorf("storageList wrong, got %v exp %v", got, exp)
+	}
+
+}
+
+type emptyLayer struct{}
+
+func (emptyLayer) Update(blockRoot common.Hash, accounts map[common.Hash][]byte, storage map[common.Hash]map[common.Hash][]byte) *diffLayer {
+	panic("implement me")
+}
+
+func (emptyLayer) Cap(layers int, memory uint64) (uint64, uint64) {
+	panic("implement me")
+}
+
+func (emptyLayer) Journal() error {
+	panic("implement me")
+}
+
+func (emptyLayer) Info() (uint64, common.Hash) {
+	panic("implement me")
+}
+
+func (emptyLayer) Account(hash common.Hash) *Account {
+	return nil
+}
+
+func (emptyLayer) AccountRLP(hash common.Hash) []byte {
+	return nil
+}
+
+func (emptyLayer) Storage(accountHash, storageHash common.Hash) []byte {
+	return nil
+}
+
+// BenchmarkSearch checks how long it takes to find a non-existing key
+// BenchmarkSearch-6   	  200000	     10481 ns/op (1K per layer)
+// BenchmarkSearch-6   	  200000	     10760 ns/op (10K per layer)
+// BenchmarkSearch-6   	  500000	      3723 ns/op (10k per layer, only top-level RLock()
+func BenchmarkSearch(b *testing.B) {
+	// First, we set up 128 diff layers, with 1K items each
+
+	blocknum := uint64(0)
+	fill := func(parent snapshot) *diffLayer {
+		accounts := make(map[common.Hash][]byte)
+		storage := make(map[common.Hash]map[common.Hash][]byte)
+
+		for i := 0; i < 10000; i++ {
+			accounts[randomHash()] = randomAccount()
+		}
+		blocknum++
+		return newDiffLayer(parent, blocknum, common.Hash{}, accounts, storage)
+	}
+
+	var layer snapshot
+	layer = emptyLayer{}
+	for i := 0; i < 128; i++ {
+		layer = fill(layer)
+	}
+
+	key := common.Hash{}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		layer.AccountRLP(key)
+	}
+}
+
+// BenchmarkSearchSlot checks how long it takes to find a non-existing key
+// - Number of layers: 128
+// - Each layers contains the account, with a couple of storage slots
+// BenchmarkSearchSlot-6   	  100000	     14554 ns/op
+// BenchmarkSearchSlot-6   	  200000	      7158 ns/op (only top level RLock
+
+func BenchmarkSearchSlot(b *testing.B) {
+	// First, we set up 128 diff layers, with 1K items each
+
+	blocknum := uint64(0)
+	accountKey := common.Hash{}
+	storageKey := common.HexToHash("0x1337")
+	accountRLP := randomAccount()
+	fill := func(parent snapshot) *diffLayer {
+		accounts := make(map[common.Hash][]byte)
+		accounts[accountKey] = accountRLP
+		storage := make(map[common.Hash]map[common.Hash][]byte)
+
+		accStorage := make(map[common.Hash][]byte)
+		for i := 0; i < 5; i++ {
+			value := make([]byte, 32)
+			rand.Read(value)
+			accStorage[randomHash()] = value
+			storage[accountKey] = accStorage
+		}
+		blocknum++
+		return newDiffLayer(parent, blocknum, common.Hash{}, accounts, storage)
+	}
+
+	var layer snapshot
+	layer = emptyLayer{}
+	for i := 0; i < 128; i++ {
+		layer = fill(layer)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		layer.Storage(accountKey, storageKey)
+	}
+}
+//
+//BenchmarkFlatten-6   	      50	  24565939 ns/op
+
+// Without storage items:
+//BenchmarkFlatten-6   	     100	  15812338 ns/op
+
+func BenchmarkFlatten(b *testing.B) {
+
+	fill := func(parent snapshot, blocknum int) *diffLayer {
+		accounts := make(map[common.Hash][]byte)
+		storage := make(map[common.Hash]map[common.Hash][]byte)
+
+		for i := 0; i < 100; i++ {
+			accountKey := randomHash()
+			accounts[accountKey] = randomAccount()
+
+			accStorage := make(map[common.Hash][]byte)
+			for i := 0; i < 20; i++ {
+				value := make([]byte, 32)
+				rand.Read(value)
+				accStorage[randomHash()] = value
+
+			}
+			storage[accountKey] = accStorage
+		}
+		return newDiffLayer(parent, uint64(blocknum), common.Hash{}, accounts, storage)
+	}
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		var layer snapshot
+		layer = emptyLayer{}
+		for i := 1; i < 128; i++ {
+			layer = fill(layer, i)
+		}
+		b.StartTimer()
+
+		for i := 1; i < 128; i++ {
+			dl, ok := layer.(*diffLayer)
+			if !ok {
+				break
+			}
+
+			layer = dl.flatten()
+		}
+		b.StopTimer()
+	}
+}

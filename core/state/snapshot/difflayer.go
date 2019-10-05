@@ -288,13 +288,18 @@ func (dl *diffLayer) flatten() snapshot {
 	// flatten will realistically only ever merge 1 layer, so there's no need to
 	// be smarter about grouping flattens together).
 	parent = parent.flatten().(*diffLayer)
-
 	// Overwrite all the updated accounts blindly, merge the sorted list
 	for hash, data := range dl.accountData {
 		parent.accountData[hash] = data
 	}
-	parent.accountList = append(parent.accountList, dl.accountList...) // TODO(karalabe): dedup!!
-	parent.accountSorted = false
+	if !parent.accountSorted {
+		sort.Sort(hashes(parent.accountList))
+	}
+	if !dl.accountSorted {
+		sort.Sort(hashes(dl.accountList))
+	}
+	parent.accountList = dedupMerge(parent.accountList, dl.accountList)
+	parent.accountSorted = true
 
 	// Overwrite all the updates storage slots (individually)
 	for accountHash, storage := range dl.storageData {
@@ -302,6 +307,7 @@ func (dl *diffLayer) flatten() snapshot {
 		// was freshly deleted in the child, overwrite blindly
 		if parent.storageData[accountHash] == nil || storage == nil {
 			parent.storageList[accountHash] = dl.storageList[accountHash]
+			parent.storageSorted[accountHash] = dl.storageSorted[accountHash]
 			parent.storageData[accountHash] = storage
 			continue
 		}
@@ -311,8 +317,18 @@ func (dl *diffLayer) flatten() snapshot {
 			comboData[storageHash] = data
 		}
 		parent.storageData[accountHash] = comboData
-		parent.storageList[accountHash] = append(parent.storageList[accountHash], dl.storageList[accountHash]...) // TODO(karalabe): dedup!!
-		parent.storageSorted[accountHash] = false
+		{ // The storage lists
+			pStoreList, pSorted := parent.storageList[accountHash], parent.storageSorted[accountHash]
+			dlStoreList, dlSorted := dl.storageList[accountHash], dl.storageSorted[accountHash]
+			if !pSorted {
+				sort.Sort(hashes(pStoreList))
+			}
+			if !dlSorted {
+				sort.Sort(hashes(dlStoreList))
+			}
+			parent.storageList[accountHash] = dedupMerge(pStoreList, dlStoreList)
+			parent.storageSorted[accountHash] = true
+		}
 	}
 	// Return the combo parent
 	parent.number = dl.number
