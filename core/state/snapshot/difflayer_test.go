@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"bytes"
 	"math/big"
 	"math/rand"
 	"testing"
@@ -49,56 +50,39 @@ func TestMergeBasics(t *testing.T) {
 	child = newDiffLayer(child, 1, common.Hash{}, accounts, storage)
 	// And flatten
 	merged := (child.flatten()).(*diffLayer)
-	if got, exp := len(merged.accountList), len(accounts); got != exp {
-		t.Errorf("accountList wrong, got %v exp %v", got, exp)
+
+	{ // Check account lists
+		// Should be zero/nil first
+		if got, exp := len(merged.accountList), 0; got != exp {
+			t.Errorf("accountList wrong, got %v exp %v", got, exp)
+		}
+		// Then set when we call AccountList
+		if got, exp := len(merged.AccountList()), len(accounts); got != exp {
+			t.Errorf("AccountList() wrong, got %v exp %v", got, exp)
+		}
+		if got, exp := len(merged.accountList), len(accounts); got != exp {
+			t.Errorf("accountList [2] wrong, got %v exp %v", got, exp)
+		}
 	}
-	if got, exp := len(merged.storageList), len(storage); got != exp {
-		t.Errorf("storageList wrong, got %v exp %v", got, exp)
+	{ // Check storage lists
+		i := 0
+		for aHash, sMap := range storage {
+			if got, exp := len(merged.storageList), i; got != exp {
+				t.Errorf("[1] storageList wrong, got %v exp %v", got, exp)
+			}
+			if got, exp := len(merged.StorageList(aHash)), len(sMap); got != exp {
+				t.Errorf("[2] StorageList() wrong, got %v exp %v", got, exp)
+			}
+			if got, exp := len(merged.storageList[aHash]), len(sMap); got != exp {
+				t.Errorf("storageList wrong, got %v exp %v", got, exp)
+			}
+			i++
+		}
 	}
 }
 
 // TestMergeDelete tests some deletion
 func TestMergeDelete(t *testing.T) {
-	var (
-		accountsA = make(map[common.Hash][]byte)
-		storage   = make(map[common.Hash]map[common.Hash][]byte)
-		accountsB = make(map[common.Hash][]byte)
-	)
-	// Fill up a parent
-	h1 := common.HexToHash("0x01")
-	h2 := common.HexToHash("0x02")
-
-	accountsA[h1] = randomAccount()
-	accountsA[h2] = nil
-
-	accountsB[h1] = nil
-	accountsB[h2] = randomAccount()
-
-	// Add some flip-flopping layers on top
-	parent := newDiffLayer(nil, 1, common.Hash{}, accountsA, storage)
-	child := newDiffLayer(parent, 2, common.Hash{}, accountsB, storage)
-	child = newDiffLayer(child, 3, common.Hash{}, accountsA, storage)
-	if child.Account(h1) == nil {
-		t.Errorf("last diff layer: expected %x to be non-nil", h1)
-	}
-	if child.Account(h2) != nil {
-		t.Errorf("last diff layer: expected %x to be nil", h2)
-	}
-	// And flatten
-	merged := (child.flatten()).(*diffLayer)
-	// These fails because the accounts-slice is reused, and not copied
-	// thus the flattening will affect the upper layers. Maybe that's totally
-	// fine, but if not, that needs to be taken care of
-	if merged.Account(h1) == nil {
-		t.Errorf("merged layer: expected %x to be non-nil", h1)
-	}
-	if merged.Account(h2) != nil {
-		t.Errorf("merged layer: expected %x to be nil", h2)
-	}
-}
-
-// TestMergeDelete2 tests some deletion
-func TestMergeDelete2(t *testing.T) {
 	var (
 		storage = make(map[common.Hash]map[common.Hash][]byte)
 	)
@@ -141,46 +125,44 @@ func TestMergeDelete2(t *testing.T) {
 	if merged.Account(h2) != nil {
 		t.Errorf("merged layer: expected %x to be nil", h2)
 	}
-	if got, exp := merged.memory, child.memory; got != exp {
-		t.Errorf("mem wrong, got %d, exp %d", got, exp)
-	}
+	// If we add more granular metering of memory, we can enable this again,
+	// but it's not implemented for now
+	//if got, exp := merged.memory, child.memory; got != exp {
+	//	t.Errorf("mem wrong, got %d, exp %d", got, exp)
+	//}
 }
 
 // This tests that if we create a new account, and set a slot, and then merge
-// it, the lists will be correct
-func TestInsertAndMerge(t *testing.T){
+// it, the lists will be correct.
+func TestInsertAndMerge(t *testing.T) {
 	// Fill up a parent
-	var(
-		acc = common.HexToHash("0x01")
-		slot = common.HexToHash("0x02")
+	var (
+		acc    = common.HexToHash("0x01")
+		slot   = common.HexToHash("0x02")
 		parent *diffLayer
-		child *diffLayer
+		child  *diffLayer
 	)
-
 	{
 		var accounts = make(map[common.Hash][]byte)
-		var storage  = make(map[common.Hash]map[common.Hash][]byte)
+		var storage = make(map[common.Hash]map[common.Hash][]byte)
 		parent = newDiffLayer(emptyLayer{}, 1, common.Hash{}, accounts, storage)
 	}
 	{
 		var accounts = make(map[common.Hash][]byte)
-		var storage  = make(map[common.Hash]map[common.Hash][]byte)
+		var storage = make(map[common.Hash]map[common.Hash][]byte)
 		accounts[acc] = randomAccount()
 		accstorage := make(map[common.Hash][]byte)
 		storage[acc] = accstorage
 		storage[acc][slot] = []byte{0x01}
 		child = newDiffLayer(parent, 2, common.Hash{}, accounts, storage)
 	}
-
 	// And flatten
 	merged := (child.flatten()).(*diffLayer)
-	if got, exp := len(merged.accountList), 1; got != exp {
-		t.Errorf("accountList wrong, got %v exp %v", got, exp)
+	{ // Check that slot value is present
+		if got, exp := merged.Storage(acc, slot), []byte{0x01}; bytes.Compare(got, exp) != 0 {
+			t.Errorf("merged slot value wrong, got %x, exp %x", got, exp)
+		}
 	}
-	if got, exp := len(merged.storageList), 1; got != exp {
-		t.Errorf("storageList wrong, got %v exp %v", got, exp)
-	}
-
 }
 
 type emptyLayer struct{}
@@ -216,6 +198,8 @@ func (emptyLayer) Storage(accountHash, storageHash common.Hash) []byte {
 // BenchmarkSearch checks how long it takes to find a non-existing key
 // BenchmarkSearch-6   	  200000	     10481 ns/op (1K per layer)
 // BenchmarkSearch-6   	  200000	     10760 ns/op (10K per layer)
+// BenchmarkSearch-6   	  100000	     17866 ns/op
+//
 // BenchmarkSearch-6   	  500000	      3723 ns/op (10k per layer, only top-level RLock()
 func BenchmarkSearch(b *testing.B) {
 	// First, we set up 128 diff layers, with 1K items each
@@ -285,12 +269,12 @@ func BenchmarkSearchSlot(b *testing.B) {
 		layer.Storage(accountKey, storageKey)
 	}
 }
+
+// With accountList and sorting
+//BenchmarkFlatten-6   	      50	  29890856 ns/op
 //
-//BenchmarkFlatten-6   	      50	  24565939 ns/op
-
-// Without storage items:
-//BenchmarkFlatten-6   	     100	  15812338 ns/op
-
+// Without sorting and tracking accountlist
+// BenchmarkFlatten-6   	     300	   5511511 ns/op
 func BenchmarkFlatten(b *testing.B) {
 
 	fill := func(parent snapshot, blocknum int) *diffLayer {
