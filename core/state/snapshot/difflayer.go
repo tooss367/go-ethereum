@@ -195,7 +195,7 @@ func (dl *diffLayer) Cap(layers int, memory uint64) (uint64, uint64) {
 	parent.lock.RLock()
 	defer parent.lock.RUnlock()
 
-	// Start by temporarilly deleting the current snapshot block marker. This
+	// Start by temporarily deleting the current snapshot block marker. This
 	// ensures that in the case of a crash, the entire snapshot is invalidated.
 	rawdb.DeleteSnapshotBlock(batch)
 
