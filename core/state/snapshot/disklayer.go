@@ -46,8 +46,8 @@ func (dl *diskLayer) Number() uint64 {
 
 // Account directly retrieves the account associated with a particular hash in
 // the snapshot slim data format.
-func (dl *diskLayer) Account(hash common.Hash) *Account {
-	data := dl.AccountRLP(hash)
+func (dl *diskLayer) Account(hash common.Hash, number uint64) *Account {
+	data := dl.AccountRLP(hash, number)
 	if len(data) == 0 { // can be both nil and []byte{}
 		return nil
 	}
@@ -60,7 +60,11 @@ func (dl *diskLayer) Account(hash common.Hash) *Account {
 
 // AccountRLP directly retrieves the account RLP associated with a particular
 // hash in the snapshot slim data format.
-func (dl *diskLayer) AccountRLP(hash common.Hash) []byte {
+func (dl *diskLayer) AccountRLP(hash common.Hash, number uint64) []byte {
+	if dl.number != number {
+		// TODO: error
+		return nil
+	}
 	key := string(hash[:])
 
 	// Try to retrieve the account from the memory cache
@@ -81,7 +85,11 @@ func (dl *diskLayer) AccountRLP(hash common.Hash) []byte {
 
 // Storage directly retrieves the storage data associated with a particular hash,
 // within a particular account.
-func (dl *diskLayer) Storage(accountHash, storageHash common.Hash) []byte {
+func (dl *diskLayer) Storage(accountHash, storageHash common.Hash, number uint64) []byte {
+	if dl.number != number {
+		// TODO: error
+		return nil
+	}
 	key := string(append(accountHash[:], storageHash[:]...))
 
 	// Try to retrieve the storage slot from the memory cache

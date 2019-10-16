@@ -45,20 +45,17 @@ type Snapshot interface {
 	// Info returns the block number and root hash for which this snapshot was made.
 	Info() (uint64, common.Hash)
 
-	// IsNumber returns the block number which this snapshot represents
-	Number() uint64
-
 	// Account directly retrieves the account associated with a particular hash in
 	// the snapshot slim data format.
-	Account(hash common.Hash) *Account
+	Account(hash common.Hash, number uint64) *Account
 
 	// AccountRLP directly retrieves the account RLP associated with a particular
 	// hash in the snapshot slim data format.
-	AccountRLP(hash common.Hash) []byte
+	AccountRLP(hash common.Hash, number uint64) []byte
 
 	// Storage directly retrieves the storage data associated with a particular hash,
 	// within a particular account.
-	Storage(accountHash, storageHash common.Hash) []byte
+	Storage(accountHash, storageHash common.Hash, number uint64) []byte
 }
 
 // snapshot is the internal version of the snapshot data layer that supports some

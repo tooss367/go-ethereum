@@ -121,24 +121,30 @@ func TestMergeDelete(t *testing.T) {
 
 	// Add some flip-flopping layers on top
 	parent := newDiffLayer(emptyLayer{}, 1, common.Hash{}, flip(), storage)
-	child := newDiffLayer(parent, 2, common.Hash{}, flop(), storage)
-	child = newDiffLayer(child, 3, common.Hash{}, flip(), storage)
-	child = newDiffLayer(child, 3, common.Hash{}, flop(), storage)
-	child = newDiffLayer(child, 3, common.Hash{}, flip(), storage)
-	child = newDiffLayer(child, 3, common.Hash{}, flop(), storage)
-	child = newDiffLayer(child, 3, common.Hash{}, flip(), storage)
-	if child.Account(h1) == nil {
+	child := parent.Update(common.Hash{}, flop(), storage)
+	child = child.Update(common.Hash{}, flip(), storage)
+	child = child.Update(common.Hash{}, flop(), storage)
+	child = child.Update(common.Hash{}, flip(), storage)
+	child = child.Update(common.Hash{}, flop(), storage)
+	child = child.Update(common.Hash{}, flip(), storage)
+
+	if child.Account(h1, child.number) == nil {
 		t.Errorf("last diff layer: expected %x to be non-nil", h1)
 	}
-	if child.Account(h2) != nil {
+	if child.Account(h2, child.number) != nil {
 		t.Errorf("last diff layer: expected %x to be nil", h2)
 	}
 	// And flatten
 	merged := (child.flatten()).(*diffLayer)
-	if merged.Account(h1) == nil {
+
+	// check number
+	if got, exp := merged.number, child.number; got != exp {
+		t.Errorf("merged layer: wrong number - exp %d got %d", exp, got)
+	}
+	if merged.Account(h1, child.number) == nil {
 		t.Errorf("merged layer: expected %x to be non-nil", h1)
 	}
-	if merged.Account(h2) != nil {
+	if merged.Account(h2, child.number) != nil {
 		t.Errorf("merged layer: expected %x to be nil", h2)
 	}
 	// If we add more granular metering of memory, we can enable this again,
@@ -175,7 +181,7 @@ func TestInsertAndMerge(t *testing.T) {
 	// And flatten
 	merged := (child.flatten()).(*diffLayer)
 	{ // Check that slot value is present
-		if got, exp := merged.Storage(acc, slot), []byte{0x01}; bytes.Compare(got, exp) != 0 {
+		if got, exp := merged.Storage(acc, slot, merged.number), []byte{0x01}; bytes.Compare(got, exp) != 0 {
 			t.Errorf("merged slot value wrong, got %x, exp %x", got, exp)
 		}
 	}
@@ -202,15 +208,15 @@ func (emptyLayer) Number() uint64 {
 	return 0
 }
 
-func (emptyLayer) Account(hash common.Hash) *Account {
+func (emptyLayer) Account(hash common.Hash, number uint64) *Account {
 	return nil
 }
 
-func (emptyLayer) AccountRLP(hash common.Hash) []byte {
+func (emptyLayer) AccountRLP(hash common.Hash, number uint64) []byte {
 	return nil
 }
 
-func (emptyLayer) Storage(accountHash, storageHash common.Hash) []byte {
+func (emptyLayer) Storage(accountHash, storageHash common.Hash, number uint64) []byte {
 	return nil
 }
 
@@ -244,7 +250,7 @@ func BenchmarkSearch(b *testing.B) {
 	key := common.Hash{}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		layer.AccountRLP(key)
+		layer.AccountRLP(key, blocknum)
 	}
 }
 
@@ -285,7 +291,7 @@ func BenchmarkSearchSlot(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		layer.Storage(accountKey, storageKey)
+		layer.Storage(accountKey, storageKey, blocknum)
 	}
 }
 
