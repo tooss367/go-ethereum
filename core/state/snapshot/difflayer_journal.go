@@ -78,8 +78,8 @@ func loadDiffLayer(parent snapshot, r *rlp.Stream) (snapshot, error) {
 	}
 	// Validate the block number to avoid state corruption
 	if parent, ok := parent.(*diffLayer); ok {
-		if number != parent.number+1 {
-			return nil, fmt.Errorf("snapshot chain broken: block #%d after #%d", number, parent.number)
+		if number != parent.Number()+1 {
+			return nil, fmt.Errorf("snapshot chain broken: block #%d after #%d", number, parent.Number())
 		}
 	}
 	return loadDiffLayer(newDiffLayer(parent, number, root, accountData, storageData), r)
@@ -106,7 +106,7 @@ func (dl *diffLayer) journal() (io.WriteCloser, error) {
 		writer = file
 	}
 	// Everything below was journalled, persist this layer too
-	if err := rlp.Encode(writer, dl.number); err != nil {
+	if err := rlp.Encode(writer, dl.Number()); err != nil {
 		writer.Close()
 		return nil, err
 	}

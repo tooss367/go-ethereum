@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -38,8 +39,9 @@ type diffLayer struct {
 	parent snapshot // Parent snapshot modified by this one, never nil
 	memory uint64   // Approximate guess as to how much memory we use
 
-	number uint64      // Block number to which this snapshot diff belongs to
-	root   common.Hash // Root hash to which this snapshot diff belongs to
+	number  uint64      // Block number to which this snapshot diff belongs to
+	root    common.Hash // Root hash to which this snapshot diff belongs to
+	pNumber uint64      // Number of the parent
 
 	accountList []common.Hash                          // List of account for iteration. If it exists, it's sorted, otherwise it's nil
 	accountData map[common.Hash][]byte                 // Keyed accounts for direct retrival (nil means deleted)
@@ -53,10 +55,12 @@ type diffLayer struct {
 // level persistent database or a hierarchical diff already.
 func newDiffLayer(parent snapshot, number uint64, root common.Hash, accounts map[common.Hash][]byte, storage map[common.Hash]map[common.Hash][]byte) *diffLayer {
 	// Create the new layer with some pre-allocated data segments
+	parentNum, _ := parent.Info()
 	dl := &diffLayer{
 		parent:      parent,
 		number:      number,
 		root:        root,
+		pNumber:     parentNum,
 		accountData: accounts,
 		storageData: storage,
 	}
@@ -96,7 +100,12 @@ func newDiffLayer(parent snapshot, number uint64, root common.Hash, accounts map
 
 // Info returns the block number and root hash for which this snapshot was made.
 func (dl *diffLayer) Info() (uint64, common.Hash) {
-	return dl.number, dl.root
+	num := atomic.LoadUint64(&dl.number)
+	return num, dl.root
+}
+
+func (dl *diffLayer) Number() uint64 {
+	return atomic.LoadUint64(&dl.number)
 }
 
 // Account directly retrieves the account associated with a particular hash in
@@ -125,6 +134,10 @@ func (dl *diffLayer) AccountRLP(hash common.Hash) []byte {
 		return data
 	}
 	// Account unknown to this diff, resolve from parent
+	if dl.parent.Number() != dl.pNumber {
+		// parent was merged with something else, we need to abort
+		return nil
+	}
 	return dl.parent.AccountRLP(hash)
 }
 
@@ -144,6 +157,10 @@ func (dl *diffLayer) Storage(accountHash, storageHash common.Hash) []byte {
 		if data, ok := storage[storageHash]; ok {
 			return data
 		}
+	}
+	if dl.parent.Number() != dl.pNumber {
+		// parent was merged with something else, we need to abort
+		return nil
 	}
 	// Account - or slot within - unknown to this diff, resolve from parent
 	return dl.parent.Storage(accountHash, storageHash)
@@ -167,21 +184,26 @@ func (dl *diffLayer) Cap(layers int, memory uint64) (uint64, uint64) {
 			return parent.Cap(layers-1, memory)
 		}
 		// Diff stack too shallow, return block numbers without modifications
-		return dl.parent.(*diskLayer).number, dl.number
+		return dl.parent.Number(), dl.Number()
 	}
 	// We're out of layers, flatten anything below, stopping if it's the disk or if
 	// the memory limit is not yet exceeded.
 	switch parent := dl.parent.(type) {
 	case *diskLayer:
-		return parent.number, dl.number
+		return parent.Number(), dl.Number()
 	case *diffLayer:
+		// Flatten the parent into the grandparent
+		// the flattening internally obtains writelock on grandparent
+		parent = parent.flatten().(*diffLayer)
+
 		dl.lock.Lock()
 		defer dl.lock.Unlock()
 
-		dl.parent = parent.flatten()
-		if dl.parent.(*diffLayer).memory < memory {
-			diskNumber, _ := parent.parent.Info()
-			return diskNumber, parent.number
+		dl.parent = parent
+		dl.pNumber = parent.Number()
+		if parent.memory < memory {
+			diskNumber := parent.parent.Number()
+			return diskNumber, dl.pNumber
 		}
 	default:
 		panic(fmt.Sprintf("unknown data layer: %T", parent))
@@ -246,7 +268,8 @@ func (dl *diffLayer) Cap(layers int, memory uint64) (uint64, uint64) {
 		}
 	}
 	// Update the snapshot block marker and write any remainder data
-	base.number, base.root = parent.number, parent.root
+	atomic.StoreUint64(&base.number, parent.Number())
+	base.root = parent.root
 
 	rawdb.WriteSnapshotBlock(batch, base.number, base.root)
 	if err := batch.Write(); err != nil {
@@ -254,7 +277,7 @@ func (dl *diffLayer) Cap(layers int, memory uint64) (uint64, uint64) {
 	}
 	dl.parent = base
 
-	return base.number, dl.number
+	return base.Number(), dl.Number()
 }
 
 // flatten pushes all data from this point downwards, flattening everything into
@@ -270,6 +293,14 @@ func (dl *diffLayer) flatten() snapshot {
 	// flatten will realistically only ever merge 1 layer, so there's no need to
 	// be smarter about grouping flattens together).
 	parent = parent.flatten().(*diffLayer)
+	parent.lock.Lock()
+	defer parent.lock.Unlock()
+	// Before actually writing all our data to the parent, first ensure that the
+	// parent hasn't been 'corrupted' by someone else already flattening into it
+	if dl.pNumber != parent.Number() {
+		// Parent moved. Nothing to do here ... except maybe return an error (@karalabe?)
+		return dl
+	}
 	// Overwrite all the updated accounts blindly, merge the sorted list
 	for hash, data := range dl.accountData {
 		parent.accountData[hash] = data
@@ -291,7 +322,7 @@ func (dl *diffLayer) flatten() snapshot {
 		parent.storageData[accountHash] = comboData
 	}
 	// Return the combo parent
-	parent.number = dl.number
+	atomic.StoreUint64(&parent.number, dl.Number())
 	parent.root = dl.root
 	parent.memory += dl.memory
 	return parent

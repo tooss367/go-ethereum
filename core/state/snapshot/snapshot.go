@@ -45,6 +45,9 @@ type Snapshot interface {
 	// Info returns the block number and root hash for which this snapshot was made.
 	Info() (uint64, common.Hash)
 
+	// IsNumber returns the block number which this snapshot represents
+	Number() uint64
+
 	// Account directly retrieves the account associated with a particular hash in
 	// the snapshot slim data format.
 	Account(hash common.Hash) *Account

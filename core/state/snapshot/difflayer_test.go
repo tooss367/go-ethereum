@@ -59,7 +59,7 @@ func TestMergeBasics(t *testing.T) {
 		}
 	}
 	// Add some (identical) layers on top
-	parent := newDiffLayer(nil, 1, common.Hash{}, accounts, storage)
+	parent := newDiffLayer(emptyLayer{}, 1, common.Hash{}, accounts, storage)
 	child := newDiffLayer(parent, 1, common.Hash{}, accounts, storage)
 	child = newDiffLayer(child, 1, common.Hash{}, accounts, storage)
 	child = newDiffLayer(child, 1, common.Hash{}, accounts, storage)
@@ -120,7 +120,7 @@ func TestMergeDelete(t *testing.T) {
 	}
 
 	// Add some flip-flopping layers on top
-	parent := newDiffLayer(nil, 1, common.Hash{}, flip(), storage)
+	parent := newDiffLayer(emptyLayer{}, 1, common.Hash{}, flip(), storage)
 	child := newDiffLayer(parent, 2, common.Hash{}, flop(), storage)
 	child = newDiffLayer(child, 3, common.Hash{}, flip(), storage)
 	child = newDiffLayer(child, 3, common.Hash{}, flop(), storage)
@@ -196,7 +196,10 @@ func (emptyLayer) Journal() error {
 }
 
 func (emptyLayer) Info() (uint64, common.Hash) {
-	panic("implement me")
+	return 0, common.Hash{}
+}
+func (emptyLayer) Number() uint64 {
+	return 0
 }
 
 func (emptyLayer) Account(hash common.Hash) *Account {
@@ -249,8 +252,8 @@ func BenchmarkSearch(b *testing.B) {
 // - Number of layers: 128
 // - Each layers contains the account, with a couple of storage slots
 // BenchmarkSearchSlot-6   	  100000	     14554 ns/op
-// BenchmarkSearchSlot-6   	  200000	      7158 ns/op (only top level RLock
-
+// BenchmarkSearchSlot-6   	  100000	     22254 ns/op (when checking parent root using mutex)
+// BenchmarkSearchSlot-6   	  100000	     14551 ns/op (when checking parent number using atomic)
 func BenchmarkSearchSlot(b *testing.B) {
 	// First, we set up 128 diff layers, with 1K items each
 

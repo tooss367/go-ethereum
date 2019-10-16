@@ -22,6 +22,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/rlp"
+	"sync/atomic"
 )
 
 // diskLayer is a low level persistent snapshot built on top of a key-value store.
@@ -36,7 +37,11 @@ type diskLayer struct {
 
 // Info returns the block number and root hash for which this snapshot was made.
 func (dl *diskLayer) Info() (uint64, common.Hash) {
-	return dl.number, dl.root
+	return dl.Number(), dl.root
+}
+
+func (dl *diskLayer) Number() uint64 {
+	return atomic.LoadUint64(&dl.number)
 }
 
 // Account directly retrieves the account associated with a particular hash in
