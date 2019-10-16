@@ -169,7 +169,7 @@ func (dl *diffLayer) Storage(accountHash, storageHash common.Hash) []byte {
 // Update creates a new layer on top of the existing snapshot diff tree with
 // the specified data items.
 func (dl *diffLayer) Update(blockRoot common.Hash, accounts map[common.Hash][]byte, storage map[common.Hash]map[common.Hash][]byte) *diffLayer {
-	return newDiffLayer(dl, dl.number+1, blockRoot, accounts, storage)
+	return newDiffLayer(dl, dl.Number()+1, blockRoot, accounts, storage)
 }
 
 // Cap traverses downwards the diff tree until the number of allowed layers are
