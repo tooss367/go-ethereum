@@ -46,24 +46,26 @@ func (dl *diskLayer) Number() uint64 {
 
 // Account directly retrieves the account associated with a particular hash in
 // the snapshot slim data format.
-func (dl *diskLayer) Account(hash common.Hash, number uint64) *Account {
-	data := dl.AccountRLP(hash, number)
+func (dl *diskLayer) Account(hash common.Hash, number uint64) (*Account, error) {
+	data, err := dl.AccountRLP(hash, number)
+	if err != nil {
+		return nil, err
+	}
 	if len(data) == 0 { // can be both nil and []byte{}
-		return nil
+		return nil, nil
 	}
 	account := new(Account)
 	if err := rlp.DecodeBytes(data, account); err != nil {
 		panic(err)
 	}
-	return account
+	return account, nil
 }
 
 // AccountRLP directly retrieves the account RLP associated with a particular
 // hash in the snapshot slim data format.
-func (dl *diskLayer) AccountRLP(hash common.Hash, number uint64) []byte {
+func (dl *diskLayer) AccountRLP(hash common.Hash, number uint64) ([]byte, error) {
 	if dl.number != number {
-		// TODO: error
-		return nil
+		return nil, ErrDifflayerParentModified
 	}
 	key := string(hash[:])
 
@@ -71,7 +73,7 @@ func (dl *diskLayer) AccountRLP(hash common.Hash, number uint64) []byte {
 	if blob, err := dl.cache.Get(key); err == nil {
 		snapshotCleanHitMeter.Mark(1)
 		snapshotCleanReadMeter.Mark(int64(len(blob)))
-		return blob
+		return blob, nil
 	}
 	// Cache doesn't contain account, pull from disk and cache for later
 	blob := rawdb.ReadAccountSnapshot(dl.db, hash)
@@ -80,15 +82,15 @@ func (dl *diskLayer) AccountRLP(hash common.Hash, number uint64) []byte {
 	snapshotCleanMissMeter.Mark(1)
 	snapshotCleanWriteMeter.Mark(int64(len(blob)))
 
-	return blob
+	return blob, nil
 }
 
 // Storage directly retrieves the storage data associated with a particular hash,
 // within a particular account.
-func (dl *diskLayer) Storage(accountHash, storageHash common.Hash, number uint64) []byte {
+func (dl *diskLayer) Storage(accountHash, storageHash common.Hash, number uint64) ([]byte, error) {
 	if dl.number != number {
 		// TODO: error
-		return nil
+		return nil, ErrDifflayerParentModified
 	}
 	key := string(append(accountHash[:], storageHash[:]...))
 
@@ -96,7 +98,7 @@ func (dl *diskLayer) Storage(accountHash, storageHash common.Hash, number uint64
 	if blob, err := dl.cache.Get(key); err == nil {
 		snapshotCleanHitMeter.Mark(1)
 		snapshotCleanReadMeter.Mark(int64(len(blob)))
-		return blob
+		return blob, nil
 	}
 	// Cache doesn't contain storage slot, pull from disk and cache for later
 	blob := rawdb.ReadStorageSnapshot(dl.db, accountHash, storageHash)
@@ -105,7 +107,7 @@ func (dl *diskLayer) Storage(accountHash, storageHash common.Hash, number uint64
 	snapshotCleanMissMeter.Mark(1)
 	snapshotCleanWriteMeter.Mark(int64(len(blob)))
 
-	return blob
+	return blob, nil
 }
 
 // Update creates a new layer on top of the existing snapshot diff tree with

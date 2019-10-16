@@ -104,32 +104,35 @@ func (dl *diffLayer) Info() (uint64, common.Hash) {
 
 // Account directly retrieves the account associated with a particular hash in
 // the snapshot slim data format.
-func (dl *diffLayer) Account(hash common.Hash, number uint64) *Account {
-	data := dl.AccountRLP(hash, number)
+func (dl *diffLayer) Account(hash common.Hash, number uint64) (*Account, error) {
+	data, err := dl.AccountRLP(hash, number)
+	if err != nil {
+		return nil, err
+	}
 	if len(data) == 0 { // can be both nil and []byte{}
-		return nil
+		return nil, nil
 	}
 	account := new(Account)
 	if err := rlp.DecodeBytes(data, account); err != nil {
 		panic(err)
 	}
-	return account
+	return account, nil
 }
 
 // AccountRLP directly retrieves the account RLP associated with a particular
 // hash in the snapshot slim data format.
-func (dl *diffLayer) AccountRLP(hash common.Hash, number uint64) []byte {
+func (dl *diffLayer) AccountRLP(hash common.Hash, number uint64) ([]byte, error) {
 	dl.lock.RLock()
 	defer dl.lock.RUnlock()
 	if number != dl.number {
 		// Caller expects us to be a certain number, but flattening has
 		// occurred and this layer has progressed
-		return nil
+		return nil, ErrDifflayerParentModified
 	}
 	// If the account is known locally, return it. Note, a nil account means it was
 	// deleted, and is a different notion than an unknown account!
 	if data, ok := dl.accountData[hash]; ok {
-		return data
+		return data, nil
 	}
 	// Account unknown to this diff, resolve from parent
 	return dl.parent.AccountRLP(hash, dl.pNumber)
@@ -138,22 +141,22 @@ func (dl *diffLayer) AccountRLP(hash common.Hash, number uint64) []byte {
 // Storage directly retrieves the storage data associated with a particular hash,
 // within a particular account. If the slot is unknown to this diff, it's parent
 // is consulted.
-func (dl *diffLayer) Storage(accountHash, storageHash common.Hash, number uint64) []byte {
+func (dl *diffLayer) Storage(accountHash, storageHash common.Hash, number uint64) ([]byte, error) {
 	dl.lock.RLock()
 	defer dl.lock.RUnlock()
 	if number != dl.number {
 		// Caller expects us to be a certain number, but flattening has
 		// occurred and this layer has progressed
-		return nil
+		return nil, ErrDifflayerParentModified
 	}
 	// If the account is known locally, try to resolve the slot locally. Note, a nil
 	// account means it was deleted, and is a different notion than an unknown account!
 	if storage, ok := dl.storageData[accountHash]; ok {
 		if storage == nil {
-			return nil
+			return nil, nil
 		}
 		if data, ok := storage[storageHash]; ok {
-			return data
+			return data, nil
 		}
 	}
 	// Account - or slot within - unknown to this diff, resolve from parent

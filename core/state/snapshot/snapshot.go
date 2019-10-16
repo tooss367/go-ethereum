@@ -34,10 +34,11 @@ import (
 )
 
 var (
-	snapshotCleanHitMeter   = metrics.NewRegisteredMeter("state/snapshot/clean/hit", nil)
-	snapshotCleanMissMeter  = metrics.NewRegisteredMeter("state/snapshot/clean/miss", nil)
-	snapshotCleanReadMeter  = metrics.NewRegisteredMeter("state/snapshot/clean/read", nil)
-	snapshotCleanWriteMeter = metrics.NewRegisteredMeter("state/snapshot/clean/write", nil)
+	snapshotCleanHitMeter      = metrics.NewRegisteredMeter("state/snapshot/clean/hit", nil)
+	snapshotCleanMissMeter     = metrics.NewRegisteredMeter("state/snapshot/clean/miss", nil)
+	snapshotCleanReadMeter     = metrics.NewRegisteredMeter("state/snapshot/clean/read", nil)
+	snapshotCleanWriteMeter    = metrics.NewRegisteredMeter("state/snapshot/clean/write", nil)
+	ErrDifflayerParentModified = errors.New("difflayer parent has been modified")
 )
 
 // Snapshot represents the functionality supported by a snapshot storage layer.
@@ -47,15 +48,15 @@ type Snapshot interface {
 
 	// Account directly retrieves the account associated with a particular hash in
 	// the snapshot slim data format.
-	Account(hash common.Hash, number uint64) *Account
+	Account(hash common.Hash, number uint64) (*Account, error)
 
 	// AccountRLP directly retrieves the account RLP associated with a particular
 	// hash in the snapshot slim data format.
-	AccountRLP(hash common.Hash, number uint64) []byte
+	AccountRLP(hash common.Hash, number uint64) ([]byte, error)
 
 	// Storage directly retrieves the storage data associated with a particular hash,
 	// within a particular account.
-	Storage(accountHash, storageHash common.Hash, number uint64) []byte
+	Storage(accountHash, storageHash common.Hash, number uint64) ([]byte, error)
 }
 
 // snapshot is the internal version of the snapshot data layer that supports some

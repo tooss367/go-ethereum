@@ -18,9 +18,13 @@ package snapshot
 
 import (
 	"bytes"
+	"fmt"
+	"github.com/allegro/bigcache"
+	"github.com/ethereum/go-ethereum/core/rawdb"
 	"math/big"
 	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -128,10 +132,10 @@ func TestMergeDelete(t *testing.T) {
 	child = child.Update(common.Hash{}, flop(), storage)
 	child = child.Update(common.Hash{}, flip(), storage)
 
-	if child.Account(h1, child.number) == nil {
+	if data, _ := child.Account(h1, child.number); data == nil {
 		t.Errorf("last diff layer: expected %x to be non-nil", h1)
 	}
-	if child.Account(h2, child.number) != nil {
+	if data, _ := child.Account(h2, child.number); data != nil {
 		t.Errorf("last diff layer: expected %x to be nil", h2)
 	}
 	// And flatten
@@ -141,10 +145,10 @@ func TestMergeDelete(t *testing.T) {
 	if got, exp := merged.number, child.number; got != exp {
 		t.Errorf("merged layer: wrong number - exp %d got %d", exp, got)
 	}
-	if merged.Account(h1, child.number) == nil {
+	if data, _ := merged.Account(h1, child.number); data == nil {
 		t.Errorf("merged layer: expected %x to be non-nil", h1)
 	}
-	if merged.Account(h2, child.number) != nil {
+	if data, _ := merged.Account(h2, child.number); data != nil {
 		t.Errorf("merged layer: expected %x to be nil", h2)
 	}
 	// If we add more granular metering of memory, we can enable this again,
@@ -181,9 +185,107 @@ func TestInsertAndMerge(t *testing.T) {
 	// And flatten
 	merged := (child.flatten()).(*diffLayer)
 	{ // Check that slot value is present
-		if got, exp := merged.Storage(acc, slot, merged.number), []byte{0x01}; bytes.Compare(got, exp) != 0 {
+		got, _ := merged.Storage(acc, slot, merged.number)
+		if exp := []byte{0x01}; bytes.Compare(got, exp) != 0 {
 			t.Errorf("merged slot value wrong, got %x, exp %x", got, exp)
 		}
+	}
+}
+
+// TestCapTree tests some functionality regarding capping/flattening
+func TestCapTree(t *testing.T) {
+
+	var (
+		storage = make(map[common.Hash]map[common.Hash][]byte)
+	)
+	setAccount := func(accKey string) map[common.Hash][]byte {
+		return map[common.Hash][]byte{
+			common.HexToHash(accKey): randomAccount(),
+		}
+	}
+	// the bottom-most layer, aside from the 'disk layer'
+	cache, _ := bigcache.NewBigCache(bigcache.Config{ // TODO(karalabe): dedup
+		Shards:             1,
+		LifeWindow:         time.Hour,
+		MaxEntriesInWindow: 1 * 1024,
+		MaxEntrySize:       1,
+		HardMaxCacheSize:   1,
+	})
+
+	base := &diskLayer{
+		journal: "",
+		db:      rawdb.NewMemoryDatabase(),
+		cache:   cache,
+		number:  0,
+		root:    common.HexToHash("0x01"),
+	}
+	// The lowest difflayer
+	a1 := base.Update(common.HexToHash("0xa1"), setAccount("0xa1"), storage)
+
+	a2 := a1.Update(common.HexToHash("0xa2"), setAccount("0xa2"), storage)
+	b2 := a1.Update(common.HexToHash("0xb2"), setAccount("0xb2"), storage)
+
+	a3 := a2.Update(common.HexToHash("0xa3"), setAccount("0xa3"), storage)
+	b3 := b2.Update(common.HexToHash("0xb3"), setAccount("0xb3"), storage)
+
+	checkExist := func(layer *diffLayer, key string) error {
+		accountKey := common.HexToHash(key)
+		data, _ := layer.Account(accountKey, layer.number)
+		if data == nil {
+			return fmt.Errorf("expected %x to exist, got nil", accountKey)
+		}
+		return nil
+	}
+	shouldErr := func(layer *diffLayer, key string) error {
+		accountKey := common.HexToHash(key)
+		data, err := layer.Account(accountKey, layer.number)
+		if err == nil {
+			return fmt.Errorf("expected error, got data %x", data)
+		}
+		return nil
+	}
+
+	// check basics
+	if err := checkExist(b3, "0xa1"); err != nil {
+		t.Error(err)
+	}
+	if err := checkExist(b3, "0xb2"); err != nil {
+		t.Error(err)
+	}
+	if err := checkExist(b3, "0xb3"); err != nil {
+		t.Error(err)
+	}
+	// Now, merge the a-chain
+	diskNum, diffNum := a3.Cap(0, 1024)
+	if diskNum != 0 {
+		t.Errorf("disk layer err, got %d exp %d", diskNum, 0)
+	}
+	if diffNum != 2 {
+		t.Errorf("diff layer err, got %d exp %d", diffNum, 2)
+	}
+	// At this point, a2 got merged into a1. Thus, a1 is now modified,
+	// and as a1 is the parent of b2, b2 should no longer be able to iterate into parent
+
+	// These should still be accessible
+	if err := checkExist(b3, "0xb2"); err != nil {
+		t.Error(err)
+	}
+	if err := checkExist(b3, "0xb3"); err != nil {
+		t.Error(err)
+	}
+	b2ParentNum, _ := b2.parent.Info()
+	if b2.pNumber == b2ParentNum {
+		t.Errorf("err, exp %d, got %d", b2.pNumber, b2ParentNum)
+	}
+	// But these would need iteration into the modified parent:
+	if err := shouldErr(b3, "0xa1"); err != nil {
+		t.Error(err)
+	}
+	if err := shouldErr(b3, "0xa2"); err != nil {
+		t.Error(err)
+	}
+	if err := shouldErr(b3, "0xa3"); err != nil {
+		t.Error(err)
 	}
 }
 
@@ -208,16 +310,16 @@ func (emptyLayer) Number() uint64 {
 	return 0
 }
 
-func (emptyLayer) Account(hash common.Hash, number uint64) *Account {
-	return nil
+func (emptyLayer) Account(hash common.Hash, number uint64) (*Account, error) {
+	return nil, nil
 }
 
-func (emptyLayer) AccountRLP(hash common.Hash, number uint64) []byte {
-	return nil
+func (emptyLayer) AccountRLP(hash common.Hash, number uint64) ([]byte, error) {
+	return nil, nil
 }
 
-func (emptyLayer) Storage(accountHash, storageHash common.Hash, number uint64) []byte {
-	return nil
+func (emptyLayer) Storage(accountHash, storageHash common.Hash, number uint64) ([]byte, error) {
+	return nil, nil
 }
 
 // BenchmarkSearch checks how long it takes to find a non-existing key

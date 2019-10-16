@@ -205,7 +205,7 @@ func (s *stateObject) GetCommittedState(db Database, key common.Hash) common.Has
 			defer func(start time.Time) { s.db.SnapshotStorageReads += time.Since(start) }(time.Now())
 		}
 		num, _ := s.db.snap.Info()
-		enc = s.db.snap.Storage(s.addrHash, crypto.Keccak256Hash(key[:]), num)
+		enc, _ = s.db.snap.Storage(s.addrHash, crypto.Keccak256Hash(key[:]), num)
 	} else {
 		// Track the amount of time wasted on reading the storage trie
 		if metrics.EnabledExpensive {
