@@ -40,7 +40,7 @@ type diffLayer struct {
 
 	number  uint64      // Block number to which this snapshot diff belongs to
 	root    common.Hash // Root hash to which this snapshot diff belongs to
-	pNumber uint64      // Number of the parent
+	invalid bool        // flag to signal this layer is invalid due to flattening
 
 	accountList []common.Hash                          // List of account for iteration. If it exists, it's sorted, otherwise it's nil
 	accountData map[common.Hash][]byte                 // Keyed accounts for direct retrival (nil means deleted)
@@ -54,12 +54,10 @@ type diffLayer struct {
 // level persistent database or a hierarchical diff already.
 func newDiffLayer(parent snapshot, number uint64, root common.Hash, accounts map[common.Hash][]byte, storage map[common.Hash]map[common.Hash][]byte) *diffLayer {
 	// Create the new layer with some pre-allocated data segments
-	parentNum, _ := parent.Info()
 	dl := &diffLayer{
 		parent:      parent,
 		number:      number,
 		root:        root,
-		pNumber:     parentNum,
 		accountData: accounts,
 		storageData: storage,
 	}
@@ -104,8 +102,8 @@ func (dl *diffLayer) Info() (uint64, common.Hash) {
 
 // Account directly retrieves the account associated with a particular hash in
 // the snapshot slim data format.
-func (dl *diffLayer) Account(hash common.Hash, number uint64) (*Account, error) {
-	data, err := dl.AccountRLP(hash, number)
+func (dl *diffLayer) Account(hash common.Hash) (*Account, error) {
+	data, err := dl.AccountRLP(hash)
 	if err != nil {
 		return nil, err
 	}
@@ -121,12 +119,11 @@ func (dl *diffLayer) Account(hash common.Hash, number uint64) (*Account, error) 
 
 // AccountRLP directly retrieves the account RLP associated with a particular
 // hash in the snapshot slim data format.
-func (dl *diffLayer) AccountRLP(hash common.Hash, number uint64) ([]byte, error) {
+func (dl *diffLayer) AccountRLP(hash common.Hash) ([]byte, error) {
 	dl.lock.RLock()
 	defer dl.lock.RUnlock()
-	if number != dl.number {
-		// Caller expects us to be a certain number, but flattening has
-		// occurred and this layer has progressed
+	if dl.invalid {
+		// flattening has occurred and this layer is now invalid
 		return nil, ErrDifflayerParentModified
 	}
 	// If the account is known locally, return it. Note, a nil account means it was
@@ -135,18 +132,17 @@ func (dl *diffLayer) AccountRLP(hash common.Hash, number uint64) ([]byte, error)
 		return data, nil
 	}
 	// Account unknown to this diff, resolve from parent
-	return dl.parent.AccountRLP(hash, dl.pNumber)
+	return dl.parent.AccountRLP(hash)
 }
 
 // Storage directly retrieves the storage data associated with a particular hash,
 // within a particular account. If the slot is unknown to this diff, it's parent
 // is consulted.
-func (dl *diffLayer) Storage(accountHash, storageHash common.Hash, number uint64) ([]byte, error) {
+func (dl *diffLayer) Storage(accountHash, storageHash common.Hash) ([]byte, error) {
 	dl.lock.RLock()
 	defer dl.lock.RUnlock()
-	if number != dl.number {
-		// Caller expects us to be a certain number, but flattening has
-		// occurred and this layer has progressed
+	if dl.invalid {
+		// flattening has occurred and this layer is now invalid
 		return nil, ErrDifflayerParentModified
 	}
 	// If the account is known locally, try to resolve the slot locally. Note, a nil
@@ -160,7 +156,7 @@ func (dl *diffLayer) Storage(accountHash, storageHash common.Hash, number uint64
 		}
 	}
 	// Account - or slot within - unknown to this diff, resolve from parent
-	return dl.parent.Storage(accountHash, storageHash, dl.pNumber)
+	return dl.parent.Storage(accountHash, storageHash)
 }
 
 // Update creates a new layer on top of the existing snapshot diff tree with
@@ -199,7 +195,7 @@ func (dl *diffLayer) Cap(layers int, memory uint64) (uint64, uint64) {
 		dl.parent = parent
 		if parent.memory < memory {
 			diskNumber, _ := parent.parent.Info()
-			return diskNumber, dl.pNumber
+			return diskNumber, parent.number
 		}
 	default:
 		panic(fmt.Sprintf("unknown data layer: %T", parent))
@@ -212,10 +208,17 @@ func (dl *diffLayer) Cap(layers int, memory uint64) (uint64, uint64) {
 	)
 	parent.lock.RLock()
 	defer parent.lock.RUnlock()
-
 	// Start by temporarily deleting the current snapshot block marker. This
 	// ensures that in the case of a crash, the entire snapshot is invalidated.
 	rawdb.DeleteSnapshotBlock(batch)
+	base.lock.Lock()
+	defer base.lock.Unlock()
+	if base.invalid {
+		// this is bad, not quite sure what to do here
+		panic("disklayer base is invalid")
+	}
+	// mark base invalid
+	base.invalid = true
 
 	// Push all the accounts into the database
 	for hash, data := range parent.accountData {
@@ -263,15 +266,22 @@ func (dl *diffLayer) Cap(layers int, memory uint64) (uint64, uint64) {
 			batch.Reset()
 		}
 	}
-	// Update the snapshot block marker and write any remainder data
-	base.number, base.root = parent.Info()
+	num, root := parent.Info()
+	newBase := &diskLayer{
+		root:    root,
+		number:  num,
+		cache:   base.cache,
+		db:      base.db,
+		journal: base.journal,
+	}
 
-	rawdb.WriteSnapshotBlock(batch, base.number, base.root)
+	// Update the snapshot block marker and write any remainder data
+	rawdb.WriteSnapshotBlock(batch, newBase.number, newBase.root)
 	if err := batch.Write(); err != nil {
 		log.Crit("Failed to write leftover snapshot", "err", err)
 	}
-	dl.parent = base
-	return base.number, dl.number
+	dl.parent = newBase
+	return newBase.number, dl.number
 }
 
 // flatten pushes all data from this point downwards, flattening everything into
@@ -291,10 +301,11 @@ func (dl *diffLayer) flatten() snapshot {
 	defer parent.lock.Unlock()
 	// Before actually writing all our data to the parent, first ensure that the
 	// parent hasn't been 'corrupted' by someone else already flattening into it
-	if dl.pNumber != parent.number {
+	if parent.invalid {
 		// Parent moved. Nothing to do here ... except maybe return an error (@karalabe?)
 		return dl
 	}
+	parent.invalid = true
 	// Overwrite all the updated accounts blindly, merge the sorted list
 	for hash, data := range dl.accountData {
 		parent.accountData[hash] = data
@@ -316,10 +327,16 @@ func (dl *diffLayer) flatten() snapshot {
 		parent.storageData[accountHash] = comboData
 	}
 	// Return the combo parent
-	parent.number = dl.number
-	parent.root = dl.root
-	parent.memory += dl.memory
-	return parent
+	return &diffLayer{
+		parent:      parent.parent,
+		number:      dl.number,
+		root:        dl.root,
+		storageList: parent.storageList,
+		storageData: parent.storageData,
+		accountList: parent.accountList,
+		accountData: parent.accountData,
+		memory:      parent.memory + dl.memory,
+	}
 }
 
 // Journal commits an entire diff hierarchy to disk into a single journal file.

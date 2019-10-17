@@ -22,7 +22,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/rlp"
-	"sync/atomic"
+	"sync"
 )
 
 // diskLayer is a low level persistent snapshot built on top of a key-value store.
@@ -33,21 +33,20 @@ type diskLayer struct {
 
 	number uint64      // Block number of the base snapshot
 	root   common.Hash // Root hash of the base snapshot
+
+	lock    sync.RWMutex
+	invalid bool // flag to signal this layer is invalid due to flattening
 }
 
 // Info returns the block number and root hash for which this snapshot was made.
 func (dl *diskLayer) Info() (uint64, common.Hash) {
-	return dl.Number(), dl.root
-}
-
-func (dl *diskLayer) Number() uint64 {
-	return atomic.LoadUint64(&dl.number)
+	return dl.number, dl.root
 }
 
 // Account directly retrieves the account associated with a particular hash in
 // the snapshot slim data format.
-func (dl *diskLayer) Account(hash common.Hash, number uint64) (*Account, error) {
-	data, err := dl.AccountRLP(hash, number)
+func (dl *diskLayer) Account(hash common.Hash) (*Account, error) {
+	data, err := dl.AccountRLP(hash)
 	if err != nil {
 		return nil, err
 	}
@@ -63,8 +62,10 @@ func (dl *diskLayer) Account(hash common.Hash, number uint64) (*Account, error) 
 
 // AccountRLP directly retrieves the account RLP associated with a particular
 // hash in the snapshot slim data format.
-func (dl *diskLayer) AccountRLP(hash common.Hash, number uint64) ([]byte, error) {
-	if dl.number != number {
+func (dl *diskLayer) AccountRLP(hash common.Hash) ([]byte, error) {
+	dl.lock.RLock()
+	defer dl.lock.RUnlock()
+	if dl.invalid {
 		return nil, ErrDifflayerParentModified
 	}
 	key := string(hash[:])
@@ -87,9 +88,10 @@ func (dl *diskLayer) AccountRLP(hash common.Hash, number uint64) ([]byte, error)
 
 // Storage directly retrieves the storage data associated with a particular hash,
 // within a particular account.
-func (dl *diskLayer) Storage(accountHash, storageHash common.Hash, number uint64) ([]byte, error) {
-	if dl.number != number {
-		// TODO: error
+func (dl *diskLayer) Storage(accountHash, storageHash common.Hash) ([]byte, error) {
+	dl.lock.RLock()
+	defer dl.lock.RUnlock()
+	if dl.invalid {
 		return nil, ErrDifflayerParentModified
 	}
 	key := string(append(accountHash[:], storageHash[:]...))

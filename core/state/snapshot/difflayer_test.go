@@ -132,10 +132,10 @@ func TestMergeDelete(t *testing.T) {
 	child = child.Update(common.Hash{}, flop(), storage)
 	child = child.Update(common.Hash{}, flip(), storage)
 
-	if data, _ := child.Account(h1, child.number); data == nil {
+	if data, _ := child.Account(h1); data == nil {
 		t.Errorf("last diff layer: expected %x to be non-nil", h1)
 	}
-	if data, _ := child.Account(h2, child.number); data != nil {
+	if data, _ := child.Account(h2); data != nil {
 		t.Errorf("last diff layer: expected %x to be nil", h2)
 	}
 	// And flatten
@@ -145,10 +145,10 @@ func TestMergeDelete(t *testing.T) {
 	if got, exp := merged.number, child.number; got != exp {
 		t.Errorf("merged layer: wrong number - exp %d got %d", exp, got)
 	}
-	if data, _ := merged.Account(h1, child.number); data == nil {
+	if data, _ := merged.Account(h1); data == nil {
 		t.Errorf("merged layer: expected %x to be non-nil", h1)
 	}
-	if data, _ := merged.Account(h2, child.number); data != nil {
+	if data, _ := merged.Account(h2); data != nil {
 		t.Errorf("merged layer: expected %x to be nil", h2)
 	}
 	// If we add more granular metering of memory, we can enable this again,
@@ -185,7 +185,7 @@ func TestInsertAndMerge(t *testing.T) {
 	// And flatten
 	merged := (child.flatten()).(*diffLayer)
 	{ // Check that slot value is present
-		got, _ := merged.Storage(acc, slot, merged.number)
+		got, _ := merged.Storage(acc, slot)
 		if exp := []byte{0x01}; bytes.Compare(got, exp) != 0 {
 			t.Errorf("merged slot value wrong, got %x, exp %x", got, exp)
 		}
@@ -230,7 +230,7 @@ func TestCapTree(t *testing.T) {
 
 	checkExist := func(layer *diffLayer, key string) error {
 		accountKey := common.HexToHash(key)
-		data, _ := layer.Account(accountKey, layer.number)
+		data, _ := layer.Account(accountKey)
 		if data == nil {
 			return fmt.Errorf("expected %x to exist, got nil", accountKey)
 		}
@@ -238,7 +238,7 @@ func TestCapTree(t *testing.T) {
 	}
 	shouldErr := func(layer *diffLayer, key string) error {
 		accountKey := common.HexToHash(key)
-		data, err := layer.Account(accountKey, layer.number)
+		data, err := layer.Account(accountKey)
 		if err == nil {
 			return fmt.Errorf("expected error, got data %x", data)
 		}
@@ -273,10 +273,10 @@ func TestCapTree(t *testing.T) {
 	if err := checkExist(b3, "0xb3"); err != nil {
 		t.Error(err)
 	}
-	b2ParentNum, _ := b2.parent.Info()
-	if b2.pNumber == b2ParentNum {
-		t.Errorf("err, exp %d, got %d", b2.pNumber, b2ParentNum)
-	}
+	//b2ParentNum, _ := b2.parent.Info()
+	//if b2.parent.invalid == false
+	//	t.Errorf("err, exp parent to be invalid, got %v", b2.parent, b2ParentNum)
+	//}
 	// But these would need iteration into the modified parent:
 	if err := shouldErr(b3, "0xa1"); err != nil {
 		t.Error(err)
@@ -310,15 +310,15 @@ func (emptyLayer) Number() uint64 {
 	return 0
 }
 
-func (emptyLayer) Account(hash common.Hash, number uint64) (*Account, error) {
+func (emptyLayer) Account(hash common.Hash) (*Account, error) {
 	return nil, nil
 }
 
-func (emptyLayer) AccountRLP(hash common.Hash, number uint64) ([]byte, error) {
+func (emptyLayer) AccountRLP(hash common.Hash) ([]byte, error) {
 	return nil, nil
 }
 
-func (emptyLayer) Storage(accountHash, storageHash common.Hash, number uint64) ([]byte, error) {
+func (emptyLayer) Storage(accountHash, storageHash common.Hash) ([]byte, error) {
 	return nil, nil
 }
 
@@ -352,7 +352,7 @@ func BenchmarkSearch(b *testing.B) {
 	key := common.Hash{}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		layer.AccountRLP(key, blocknum)
+		layer.AccountRLP(key)
 	}
 }
 
@@ -393,7 +393,7 @@ func BenchmarkSearchSlot(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		layer.Storage(accountKey, storageKey, blocknum)
+		layer.Storage(accountKey, storageKey)
 	}
 }
 
