@@ -510,13 +510,16 @@ func (s *StateDB) getDeletedStateObject(addr common.Address) *stateObject {
 		return obj
 	}
 	// If no live objects are available, attempt to use snapshots
-	var data Account
+	var (
+		data Account
+		err  error
+	)
 	if s.snap != nil {
 		if metrics.EnabledExpensive {
 			defer func(start time.Time) { s.SnapshotAccountReads += time.Since(start) }(time.Now())
 		}
-		acc, err := s.snap.Account(crypto.Keccak256Hash(addr[:]))
-		if err == nil {
+		var acc *snapshot.Account
+		if acc, err = s.snap.Account(crypto.Keccak256Hash(addr[:])); err == nil {
 			if acc == nil {
 				return nil
 			}
@@ -528,27 +531,23 @@ func (s *StateDB) getDeletedStateObject(addr common.Address) *stateObject {
 			if data.Root == (common.Hash{}) {
 				data.Root = emptyRoot
 			}
-			// Insert into the live set
-			obj := newObject(s, addr, data)
-			s.setStateObject(obj)
-			return obj
-		} //implicit else, fall back to trie
-
+		}
 	}
-	// Snapshot unavailable, fall back to the trie
-	if metrics.EnabledExpensive {
-		defer func(start time.Time) { s.AccountReads += time.Since(start) }(time.Now())
+	// If snapshot unavailable or reading from it failed, load from the database
+	if s.snap == nil || err != nil {
+		if metrics.EnabledExpensive {
+			defer func(start time.Time) { s.AccountReads += time.Since(start) }(time.Now())
+		}
+		enc, err := s.trie.TryGet(addr[:])
+		if len(enc) == 0 {
+			s.setError(err)
+			return nil
+		}
+		if err := rlp.DecodeBytes(enc, &data); err != nil {
+			log.Error("Failed to decode state object", "addr", addr, "err", err)
+			return nil
+		}
 	}
-	enc, err := s.trie.TryGet(addr[:])
-	if len(enc) == 0 {
-		s.setError(err)
-		return nil
-	}
-	if err := rlp.DecodeBytes(enc, &data); err != nil {
-		log.Error("Failed to decode state object", "addr", addr, "err", err)
-		return nil
-	}
-
 	// Insert into the live set
 	obj := newObject(s, addr, data)
 	s.setStateObject(obj)

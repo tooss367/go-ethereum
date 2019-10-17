@@ -19,14 +19,14 @@ package snapshot
 import (
 	"bytes"
 	"fmt"
-	"github.com/allegro/bigcache"
-	"github.com/ethereum/go-ethereum/core/rawdb"
 	"math/big"
 	"math/rand"
 	"testing"
 	"time"
 
+	"github.com/allegro/bigcache"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/rlp"
 )
 

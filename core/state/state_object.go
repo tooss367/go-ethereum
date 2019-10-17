@@ -197,36 +197,26 @@ func (s *stateObject) GetCommittedState(db Database, key common.Hash) common.Has
 	}
 	// If no live objects are available, attempt to use snapshots
 	var (
-		enc   []byte
-		err   error
-		value common.Hash
+		enc []byte
+		err error
 	)
 	if s.db.snap != nil {
 		if metrics.EnabledExpensive {
 			defer func(start time.Time) { s.db.SnapshotStorageReads += time.Since(start) }(time.Now())
 		}
 		enc, err = s.db.snap.Storage(s.addrHash, crypto.Keccak256Hash(key[:]))
-		if err == nil {
-			if len(enc) > 0 {
-				_, content, _, err := rlp.Split(enc)
-				if err != nil {
-					s.setError(err)
-				}
-				value.SetBytes(content)
-			}
-			s.originStorage[key] = value
-			return value
-		} // implicit else, fall back to trie
 	}
-	// Track the amount of time wasted on reading the storage trie
-	if metrics.EnabledExpensive {
-		defer func(start time.Time) { s.db.StorageReads += time.Since(start) }(time.Now())
+	// If snapshot unavailable or reading from it failed, load from the database
+	if s.db.snap == nil || err != nil {
+		if metrics.EnabledExpensive {
+			defer func(start time.Time) { s.db.StorageReads += time.Since(start) }(time.Now())
+		}
+		if enc, err = s.getTrie(db).TryGet(key[:]); err != nil {
+			s.setError(err)
+			return common.Hash{}
+		}
 	}
-	// Otherwise load the value from the database
-	if enc, err = s.getTrie(db).TryGet(key[:]); err != nil {
-		s.setError(err)
-		return common.Hash{}
-	}
+	var value common.Hash
 	if len(enc) > 0 {
 		_, content, _, err := rlp.Split(enc)
 		if err != nil {

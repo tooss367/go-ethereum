@@ -17,12 +17,13 @@
 package snapshot
 
 import (
+	"sync"
+
 	"github.com/allegro/bigcache"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/rlp"
-	"sync"
 )
 
 // diskLayer is a low level persistent snapshot built on top of a key-value store.
@@ -33,9 +34,9 @@ type diskLayer struct {
 
 	number uint64      // Block number of the base snapshot
 	root   common.Hash // Root hash of the base snapshot
+	stale  bool        // Signals that the layer became stale (state progressed)
 
-	lock    sync.RWMutex
-	invalid bool // flag to signal this layer is invalid due to flattening
+	lock sync.RWMutex
 }
 
 // Info returns the block number and root hash for which this snapshot was made.
@@ -65,8 +66,11 @@ func (dl *diskLayer) Account(hash common.Hash) (*Account, error) {
 func (dl *diskLayer) AccountRLP(hash common.Hash) ([]byte, error) {
 	dl.lock.RLock()
 	defer dl.lock.RUnlock()
-	if dl.invalid {
-		return nil, ErrDifflayerParentModified
+
+	// If the layer was flattened into, consider it invalid (any live reference to
+	// the original should be marked as unusable).
+	if dl.stale {
+		return nil, ErrSnapshotStale
 	}
 	key := string(hash[:])
 
@@ -91,8 +95,11 @@ func (dl *diskLayer) AccountRLP(hash common.Hash) ([]byte, error) {
 func (dl *diskLayer) Storage(accountHash, storageHash common.Hash) ([]byte, error) {
 	dl.lock.RLock()
 	defer dl.lock.RUnlock()
-	if dl.invalid {
-		return nil, ErrDifflayerParentModified
+
+	// If the layer was flattened into, consider it invalid (any live reference to
+	// the original should be marked as unusable).
+	if dl.stale {
+		return nil, ErrSnapshotStale
 	}
 	key := string(append(accountHash[:], storageHash[:]...))
 

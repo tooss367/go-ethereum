@@ -38,9 +38,9 @@ type diffLayer struct {
 	parent snapshot // Parent snapshot modified by this one, never nil
 	memory uint64   // Approximate guess as to how much memory we use
 
-	number  uint64      // Block number to which this snapshot diff belongs to
-	root    common.Hash // Root hash to which this snapshot diff belongs to
-	invalid bool        // flag to signal this layer is invalid due to flattening
+	number uint64      // Block number to which this snapshot diff belongs to
+	root   common.Hash // Root hash to which this snapshot diff belongs to
+	stale  bool        // Signals that the layer became stale (state progressed)
 
 	accountList []common.Hash                          // List of account for iteration. If it exists, it's sorted, otherwise it's nil
 	accountData map[common.Hash][]byte                 // Keyed accounts for direct retrival (nil means deleted)
@@ -122,9 +122,11 @@ func (dl *diffLayer) Account(hash common.Hash) (*Account, error) {
 func (dl *diffLayer) AccountRLP(hash common.Hash) ([]byte, error) {
 	dl.lock.RLock()
 	defer dl.lock.RUnlock()
-	if dl.invalid {
-		// flattening has occurred and this layer is now invalid
-		return nil, ErrDifflayerParentModified
+
+	// If the layer was flattened into, consider it invalid (any live reference to
+	// the original should be marked as unusable).
+	if dl.stale {
+		return nil, ErrSnapshotStale
 	}
 	// If the account is known locally, return it. Note, a nil account means it was
 	// deleted, and is a different notion than an unknown account!
@@ -141,9 +143,11 @@ func (dl *diffLayer) AccountRLP(hash common.Hash) ([]byte, error) {
 func (dl *diffLayer) Storage(accountHash, storageHash common.Hash) ([]byte, error) {
 	dl.lock.RLock()
 	defer dl.lock.RUnlock()
-	if dl.invalid {
-		// flattening has occurred and this layer is now invalid
-		return nil, ErrDifflayerParentModified
+
+	// If the layer was flattened into, consider it invalid (any live reference to
+	// the original should be marked as unusable).
+	if dl.stale {
+		return nil, ErrSnapshotStale
 	}
 	// If the account is known locally, try to resolve the slot locally. Note, a nil
 	// account means it was deleted, and is a different notion than an unknown account!
@@ -185,17 +189,17 @@ func (dl *diffLayer) Cap(layers int, memory uint64) (uint64, uint64) {
 	case *diskLayer:
 		return parent.number, dl.number
 	case *diffLayer:
-		// Flatten the parent into the grandparent
-		// the flattening internally obtains writelock on grandparent
-		parent = parent.flatten().(*diffLayer)
+		// Flatten the parent into the grandparent. The flattening internally obtains a
+		// write lock on grandparent.
+		flattened := parent.flatten().(*diffLayer)
 
 		dl.lock.Lock()
 		defer dl.lock.Unlock()
 
-		dl.parent = parent
-		if parent.memory < memory {
-			diskNumber, _ := parent.parent.Info()
-			return diskNumber, parent.number
+		dl.parent = flattened
+		if flattened.memory < memory {
+			diskNumber, _ := flattened.parent.Info()
+			return diskNumber, flattened.number
 		}
 	default:
 		panic(fmt.Sprintf("unknown data layer: %T", parent))
@@ -208,17 +212,18 @@ func (dl *diffLayer) Cap(layers int, memory uint64) (uint64, uint64) {
 	)
 	parent.lock.RLock()
 	defer parent.lock.RUnlock()
+
 	// Start by temporarily deleting the current snapshot block marker. This
 	// ensures that in the case of a crash, the entire snapshot is invalidated.
 	rawdb.DeleteSnapshotBlock(batch)
+
+	// Mark the original base as stale as we're going to create a new wrapper
 	base.lock.Lock()
-	defer base.lock.Unlock()
-	if base.invalid {
-		// this is bad, not quite sure what to do here
-		panic("disklayer base is invalid")
+	if base.stale {
+		panic("parent disk layer is stale") // we've committed into the same base from two children, boo
 	}
-	// mark base invalid
-	base.invalid = true
+	base.stale = true
+	base.lock.Unlock()
 
 	// Push all the accounts into the database
 	for hash, data := range parent.accountData {
@@ -266,21 +271,20 @@ func (dl *diffLayer) Cap(layers int, memory uint64) (uint64, uint64) {
 			batch.Reset()
 		}
 	}
-	num, root := parent.Info()
+	// Update the snapshot block marker and write any remainder data
 	newBase := &diskLayer{
-		root:    root,
-		number:  num,
+		root:    parent.root,
+		number:  parent.number,
 		cache:   base.cache,
 		db:      base.db,
 		journal: base.journal,
 	}
-
-	// Update the snapshot block marker and write any remainder data
 	rawdb.WriteSnapshotBlock(batch, newBase.number, newBase.root)
 	if err := batch.Write(); err != nil {
 		log.Crit("Failed to write leftover snapshot", "err", err)
 	}
 	dl.parent = newBase
+
 	return newBase.number, dl.number
 }
 
@@ -297,20 +301,21 @@ func (dl *diffLayer) flatten() snapshot {
 	// flatten will realistically only ever merge 1 layer, so there's no need to
 	// be smarter about grouping flattens together).
 	parent = parent.flatten().(*diffLayer)
+
 	parent.lock.Lock()
 	defer parent.lock.Unlock()
+
 	// Before actually writing all our data to the parent, first ensure that the
 	// parent hasn't been 'corrupted' by someone else already flattening into it
-	if parent.invalid {
-		// Parent moved. Nothing to do here ... except maybe return an error (@karalabe?)
-		return dl
+	if parent.stale {
+		panic("parent diff layer is stale") // we've flattened into the same parent from two children, boo
 	}
-	parent.invalid = true
+	parent.stale = true
+
 	// Overwrite all the updated accounts blindly, merge the sorted list
 	for hash, data := range dl.accountData {
 		parent.accountData[hash] = data
 	}
-
 	// Overwrite all the updates storage slots (individually)
 	for accountHash, storage := range dl.storageData {
 		// If storage didn't exist (or was deleted) in the parent; or if the storage

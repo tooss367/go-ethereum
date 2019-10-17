@@ -34,11 +34,15 @@ import (
 )
 
 var (
-	snapshotCleanHitMeter      = metrics.NewRegisteredMeter("state/snapshot/clean/hit", nil)
-	snapshotCleanMissMeter     = metrics.NewRegisteredMeter("state/snapshot/clean/miss", nil)
-	snapshotCleanReadMeter     = metrics.NewRegisteredMeter("state/snapshot/clean/read", nil)
-	snapshotCleanWriteMeter    = metrics.NewRegisteredMeter("state/snapshot/clean/write", nil)
-	ErrDifflayerParentModified = errors.New("difflayer parent has been modified")
+	snapshotCleanHitMeter   = metrics.NewRegisteredMeter("state/snapshot/clean/hit", nil)
+	snapshotCleanMissMeter  = metrics.NewRegisteredMeter("state/snapshot/clean/miss", nil)
+	snapshotCleanReadMeter  = metrics.NewRegisteredMeter("state/snapshot/clean/read", nil)
+	snapshotCleanWriteMeter = metrics.NewRegisteredMeter("state/snapshot/clean/write", nil)
+
+	// ErrSnapshotStale is returned from data accessors if the underlying snapshot
+	// layer had been invalidated due to the chain progressing forward far enough
+	// to not maintain the layer's original state.
+	ErrSnapshotStale = errors.New("snapshot stale")
 )
 
 // Snapshot represents the functionality supported by a snapshot storage layer.
