@@ -18,9 +18,12 @@ package snapshot
 
 import (
 	"bufio"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
+
+	//"os"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -86,17 +89,62 @@ func loadDiffLayer(parent snapshot, r *rlp.Stream) (snapshot, error) {
 	return loadDiffLayer(newDiffLayer(parent, number, root, accountData, storageData), r)
 }
 
+type noOpWriter struct {
+	count int
+}
+
+func (w *noOpWriter) Write(p []byte) (n int, err error) {
+	w.count += len(p)
+	return len(p), nil
+}
+
+func (w *noOpWriter) Close() error {
+	return nil
+}
+
+func marshallHashBlob(hash common.Hash, blob []byte, w io.Writer) {
+	w.Write(hash[:])
+	v := len(blob)
+	w.Write([]byte{byte(v >> 8), byte(v)})
+	w.Write(blob)
+}
+func marshallUint64(size int, w io.Writer) {
+	data := make([]byte, 8)
+	binary.BigEndian.PutUint64(data, uint64(size))
+	w.Write(data)
+}
+
+type bufferedFileWriter struct {
+	f io.WriteCloser
+	w *bufio.Writer
+}
+
+func (b *bufferedFileWriter) Write(p []byte) (n int, err error) {
+	return b.w.Write(p)
+}
+
+func (b *bufferedFileWriter) Close() error {
+	b.w.Flush()
+	return b.f.Close()
+}
+
 // journal is the internal version of Journal that also returns the journal file
 // so subsequent layers know where to write to.
 func (dl *diffLayer) journal() (io.WriteCloser, error) {
 	// If we've reached the bottom, open the journal
 	var writer io.WriteCloser
 	if parent, ok := dl.parent.(*diskLayer); ok {
-		file, err := os.Create(parent.journal)
-		if err != nil {
-			return nil, err
+		var wCloser io.WriteCloser
+		if false {
+			file, err := os.Create(parent.journal)
+			if err != nil {
+				return nil, err
+			}
+			wCloser = file
+		} else {
+			wCloser = &noOpWriter{}
 		}
-		writer = file
+		writer = &bufferedFileWriter{w: bufio.NewWriterSize(wCloser, 1024*1024), f: wCloser}
 	}
 	// If we haven't reached the bottom yet, journal the parent first
 	if writer == nil {
@@ -113,42 +161,29 @@ func (dl *diffLayer) journal() (io.WriteCloser, error) {
 		writer.Close()
 		return nil, ErrSnapshotStale
 	}
-	buf := bufio.NewWriter(writer)
 	// Everything below was journalled, persist this layer too
-	if err := rlp.Encode(buf, dl.number); err != nil {
-		buf.Flush()
+	if err := rlp.Encode(writer, dl.number); err != nil {
 		writer.Close()
 		return nil, err
 	}
-	if err := rlp.Encode(buf, dl.root); err != nil {
-		buf.Flush()
+	if err := rlp.Encode(writer, dl.root); err != nil {
 		writer.Close()
 		return nil, err
 	}
-	accounts := make([]journalAccount, 0, len(dl.accountData))
+	// number of accounts
+	marshallUint64(len(dl.accountData), writer)
 	for hash, blob := range dl.accountData {
-		accounts = append(accounts, journalAccount{Hash: hash, Blob: blob})
+		marshallHashBlob(hash, blob, writer)
 	}
-	if err := rlp.Encode(buf, accounts); err != nil {
-		buf.Flush()
-		writer.Close()
-		return nil, err
-	}
-	storage := make([]journalStorage, 0, len(dl.storageData))
+	// and storage
+	marshallUint64(len(dl.storageData), writer)
+	//storage := make([]journalStorage, 0, len(dl.storageData))
 	for hash, slots := range dl.storageData {
-		keys := make([]common.Hash, 0, len(slots))
-		vals := make([][]byte, 0, len(slots))
+		writer.Write(hash[:])
+		marshallUint64(len(slots), writer)
 		for key, val := range slots {
-			keys = append(keys, key)
-			vals = append(vals, val)
+			marshallHashBlob(key, val, writer)
 		}
-		storage = append(storage, journalStorage{Hash: hash, Keys: keys, Vals: vals})
 	}
-	if err := rlp.Encode(buf, storage); err != nil {
-		buf.Flush()
-		writer.Close()
-		return nil, err
-	}
-	buf.Flush()
 	return writer, nil
 }

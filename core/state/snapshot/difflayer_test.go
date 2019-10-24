@@ -18,6 +18,9 @@ package snapshot
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"fmt"
+	"io/ioutil"
 	"math/big"
 	"math/rand"
 	"os"
@@ -343,13 +346,48 @@ func BenchmarkFlatten(b *testing.B) {
 	}
 }
 
+func TestJournal(t *testing.T) {
+	// make it same every time
+	//rand.Seed(1337)
+	fill := func(parent snapshot, blocknum int) *diffLayer {
+		accounts := make(map[common.Hash][]byte)
+		storage := make(map[common.Hash]map[common.Hash][]byte)
+
+		for i := 0; i < 200; i++ {
+			accountKey := randomHash()
+			accounts[accountKey] = randomAccount()
+
+			accStorage := make(map[common.Hash][]byte)
+			for i := 0; i < 200; i++ {
+				value := make([]byte, 32)
+				rand.Read(value)
+				accStorage[randomHash()] = value
+
+			}
+			storage[accountKey] = accStorage
+		}
+		return newDiffLayer(parent, uint64(blocknum), common.Hash{}, accounts, storage)
+	}
+	filepath := path.Join(os.TempDir(), "difflayer_journal.tmp")
+	var layer snapshot
+	layer = &diskLayer{
+		journal: filepath,
+	}
+	for i := 1; i < 128; i++ {
+		layer = fill(layer, i)
+	}
+	f, _ := layer.(*diffLayer).journal()
+	f.Close()
+	fmt.Printf("size: %d\n", f.(*noOpWriter).count)
+	// 339475926 <-- correct
+	// 342650926 <-- wrong
+}
+
 // This test writes ~324M of diff layers to disk, spread over
 // - 128 individual layers,
 // - each with 200 accounts
 // - containing 200 slots
-//
-// BenchmarkJournal-6   	       1	1471373923 ns/ops
-// BenchmarkJournal-6   	       1	1208083335 ns/op // bufio writer
+
 func BenchmarkJournal(b *testing.B) {
 	fill := func(parent snapshot, blocknum int) *diffLayer {
 		accounts := make(map[common.Hash][]byte)
