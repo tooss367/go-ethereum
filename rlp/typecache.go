@@ -33,6 +33,8 @@ type typeinfo struct {
 	decoderErr error // error from makeDecoder
 	writer     writer
 	writerErr  error // error from makeWriter
+	counter    counter
+	counterErr error
 }
 
 // tags represents struct tags.
@@ -63,6 +65,7 @@ type typekey struct {
 type decoder func(*Stream, reflect.Value) error
 
 type writer func(reflect.Value, *encbuf) error
+type counter func(reflect.Value, *countbuf) error
 
 func cachedDecoder(typ reflect.Type) (decoder, error) {
 	info := cachedTypeInfo(typ, tags{})
@@ -72,6 +75,11 @@ func cachedDecoder(typ reflect.Type) (decoder, error) {
 func cachedWriter(typ reflect.Type) (writer, error) {
 	info := cachedTypeInfo(typ, tags{})
 	return info.writer, info.writerErr
+}
+
+func cachedCounter(typ reflect.Type) (counter, error) {
+	info := cachedTypeInfo(typ, tags{})
+	return info.counter, info.counterErr
 }
 
 func cachedTypeInfo(typ reflect.Type, tags tags) *typeinfo {
@@ -194,6 +202,7 @@ func lastPublicField(typ reflect.Type) int {
 func (i *typeinfo) generate(typ reflect.Type, tags tags) {
 	i.decoder, i.decoderErr = makeDecoder(typ, tags)
 	i.writer, i.writerErr = makeWriter(typ, tags)
+	i.counter, i.counterErr = makeCounter(typ, tags)
 }
 
 // defaultNilKind determines whether a nil pointer to typ encodes/decodes

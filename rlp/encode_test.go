@@ -288,11 +288,12 @@ var encTests = []encTest{
 
 	// interfaces
 	{val: []io.Reader{reader}, output: "C3C20102"}, // the contained value is a struct
+	{val: []io.Reader{nil}, output: "C1C0"},        // the contained value is nil
 
 	// Encoder
 	{val: (*testEncoder)(nil), output: "C0"},
 	{val: &testEncoder{}, output: "00010001000100010001"},
-	{val: &testEncoder{errors.New("test error")}, error: "test error"},
+	{val: &testEncoder{errors.New("test error 1")}, error: "test error 1"},
 	{val: struct{ E testEncoderValueMethod }{}, output: "C3FAFEF0"},
 	{val: struct{ E *testEncoderValueMethod }{}, output: "C1C0"},
 
@@ -302,7 +303,7 @@ var encTests = []encTest{
 	// Verify that pointer method testEncoder.EncodeRLP is called for
 	// addressable non-pointer values.
 	{val: &struct{ TE testEncoder }{testEncoder{}}, output: "CA00010001000100010001"},
-	{val: &struct{ TE testEncoder }{testEncoder{errors.New("test error")}}, error: "test error"},
+	{val: &struct{ TE testEncoder }{testEncoder{errors.New("test error 2")}}, error: "test error 2"},
 
 	// Verify the error for non-addressable non-pointer Encoder.
 	{val: testEncoder{}, error: "rlp: unadressable value of type rlp.testEncoder, EncodeRLP is pointer method"},

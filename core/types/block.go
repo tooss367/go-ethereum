@@ -330,8 +330,7 @@ func (b *Block) Size() common.StorageSize {
 	if size := b.size.Load(); size != nil {
 		return size.(common.StorageSize)
 	}
-	c := writeCounter(0)
-	rlp.Encode(&c, b)
+	c, _ := rlp.CountBytes(b)
 	b.size.Store(common.StorageSize(c))
 	return common.StorageSize(c)
 }
