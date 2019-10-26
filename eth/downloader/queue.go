@@ -219,18 +219,24 @@ func (q *queue) Idle() bool {
 // fetches exceed block cache).
 func (q *queue) ShouldThrottleBlocks() bool {
 	q.lock.Lock()
-	defer q.lock.Unlock()
-
-	return q.resultSlots(q.blockPendPool, q.blockDonePool) <= 0
+	t := q.resultSlots(q.blockPendPool, q.blockDonePool) <= 0
+	q.lock.Unlock()
+	if t {
+		throttleBlockCounter.Inc(1)
+	}
+	return t
 }
 
 // ShouldThrottleReceipts checks if the download should be throttled (active receipt
 // fetches exceed block cache).
 func (q *queue) ShouldThrottleReceipts() bool {
 	q.lock.Lock()
-	defer q.lock.Unlock()
-
-	return q.resultSlots(q.receiptPendPool, q.receiptDonePool) <= 0
+	t := q.resultSlots(q.receiptPendPool, q.receiptDonePool) <= 0
+	q.lock.Unlock()
+	if t {
+		throttleReceiptCounter.Inc(1)
+	}
+	return t
 }
 
 // resultSlots calculates the number of results slots available for requests
