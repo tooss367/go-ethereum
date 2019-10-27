@@ -267,6 +267,9 @@ func (q *queue) resultSlots(pendPool map[string]*fetchRequest, donePool map[comm
 			}
 		}
 	}
+	fmt.Printf("resultslots: %d (limit: %d - finished %d - pending %d\n",
+		limit-finished-pending,
+		limit, finished, pending)
 	// Return the free slots to distribute
 	return limit - finished - pending
 }
@@ -334,17 +337,48 @@ func (q *queue) Schedule(headers []*types.Header, from uint64) []*types.Header {
 			log.Warn("Header already scheduled for block fetch", "number", header.Number, "hash", hash)
 			continue
 		}
-		if _, ok := q.receiptTaskPool[hash]; ok {
-			log.Warn("Header already scheduled for receipt fetch", "number", header.Number, "hash", hash)
-			continue
+		dlNeeded := false
+		// Queue for body retrieval - unless empty block
+		if header.TxHash != types.EmptyRootHash || header.UncleHash != types.EmptyUncleHash {
+			q.blockTaskPool[hash] = header
+			q.blockTaskQueue.Push(header, -int64(header.Number.Uint64()))
+			dlNeeded = true
+		} else { // otherwise, straight to done
+			q.blockDonePool[hash] = struct{}{}
 		}
-		// Queue the header for content retrieval
-		q.blockTaskPool[hash] = header
-		q.blockTaskQueue.Push(header, -int64(header.Number.Uint64()))
-
 		if q.mode == FastSync {
-			q.receiptTaskPool[hash] = header
-			q.receiptTaskQueue.Push(header, -int64(header.Number.Uint64()))
+			// Queue for receipt retrieval
+			if _, ok := q.receiptTaskPool[hash]; ok {
+				log.Warn("Header already scheduled for receipt fetch", "number", header.Number, "hash", hash)
+				continue
+			}
+			if header.ReceiptHash != types.EmptyRootHash {
+				q.receiptTaskPool[hash] = header
+				q.receiptTaskQueue.Push(header, -int64(header.Number.Uint64()))
+				dlNeeded = true
+			} else { // done already
+				q.receiptDonePool[hash] = struct{}{}
+			}
+		}
+		if !dlNeeded {
+			// No downloading required, the block is done already
+			// However, it's possible that the `resultOffset` hasn't been
+			// set yet.
+			// If all is well, we can bypass the dance where a peer asks for tasks
+			// but otherwise we'll have to leave it up and let the reserveXX
+			// methods eventually shuffle this to the resultCache
+			index := int(header.Number.Int64() - int64(q.resultOffset))
+			if index < len(q.resultCache) && index >= 0 {
+				q.resultCache[index] = &fetchResult{
+					Pending: 0,
+					Hash:    hash,
+					Header:  header,
+				}
+			} else {
+				// Mark it as retrieval needed
+				q.blockTaskPool[hash] = header
+				q.blockTaskQueue.Push(header, -int64(header.Number.Uint64()))
+			}
 		}
 		inserts = append(inserts, header)
 		q.headerHead = hash
@@ -519,9 +553,15 @@ func (q *queue) reserveHeaders(p *peerConnection, count int, taskPool map[common
 			return nil, false, errInvalidChain
 		}
 		if q.resultCache[index] == nil {
-			components := 1
-			if q.mode == FastSync {
-				components = 2
+			// Do we need to fetch bodies?
+			components := 0
+			if header.TxHash != types.EmptyRootHash || header.UncleHash != types.EmptyUncleHash {
+				// yes
+				components++
+			}
+			// Do we need to fetch receipts?
+			if q.mode == FastSync && header.ReceiptHash != types.EmptyRootHash {
+				components++
 			}
 			q.resultCache[index] = &fetchResult{
 				Pending: components,
@@ -530,12 +570,10 @@ func (q *queue) reserveHeaders(p *peerConnection, count int, taskPool map[common
 			}
 		}
 		// If this fetch task is a noop, skip this fetch operation
-		if isNoop(header) {
+		if q.resultCache[index].Pending == 0 {
 			donePool[hash] = struct{}{}
 			delete(taskPool, hash)
-
 			space, proc = space-1, proc-1
-			q.resultCache[index].Pending--
 			progress = true
 			continue
 		}
