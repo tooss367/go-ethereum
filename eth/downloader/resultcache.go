@@ -21,6 +21,7 @@ package downloader
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
 	"sync"
 	"sync/atomic"
 
@@ -34,9 +35,10 @@ type resultStore struct {
 	resultOffset uint64             // Offset of the first cached fetch result in the block chain
 	resultSize   common.StorageSize // Approximate size of a block (exponential moving average)
 
-	indexIncomplete int32 // Internal index of first non-completed entry, updated atomically when needed
-	//indexEmpty      int32 // Internal index of first nil entry, updated atomically when needed
-
+	// Internal index of first non-completed entry, updated atomically when needed.
+	// If all items are complete, this will equal length(items), so
+	// *important* : is not safe to use for indexing without checking against length
+	indexIncomplete int32
 }
 
 func newResultStore(size int) *resultStore {
@@ -59,9 +61,17 @@ func (r *resultStore) AddFetch(header *types.Header, fastSync bool) (bodyNeeded,
 	r.lock.RLock()
 	item, _, err = r.getFetchResult(header)
 	if err != nil {
-		common.Report(err.Error())
 		r.lock.RUnlock()
-		return
+		//log.Info("resultcache addfetch err [1]", "error", err.Error())
+		// can't create a fetchResult right away
+		bodyNeeded = !header.EmptyBody()
+		receiptNeeded = fastSync && !header.EmptyReceipts()
+		// need to ensure it winds up in at least one taskpool, so can't
+		// respond with false,false
+		if !receiptNeeded {
+			bodyNeeded = true
+		}
+		return bodyNeeded, receiptNeeded, nil, err
 	}
 	if item != nil {
 		bodyNeeded = (item.Pending)&0x1 != 0
@@ -77,8 +87,17 @@ func (r *resultStore) AddFetch(header *types.Header, fastSync bool) (bodyNeeded,
 	var index int
 	item, index, err = r.getFetchResult(header)
 	if err != nil {
-		common.Report(err.Error())
-		return false, false, nil, err
+		// can't create a fetchResult right away
+		bodyNeeded = !header.EmptyBody()
+		receiptNeeded = fastSync && !header.EmptyReceipts()
+		// need to ensure it winds up in at least one taskpool, so can't
+		// respond with false,false
+		if !receiptNeeded {
+			bodyNeeded = true
+		}
+		log.Info("resultcache addfetch err [2]", "error", err.Error())
+		return bodyNeeded, receiptNeeded, nil, err
+
 	}
 	if item == nil {
 		item = &fetchResult{
@@ -86,12 +105,12 @@ func (r *resultStore) AddFetch(header *types.Header, fastSync bool) (bodyNeeded,
 			Header: header,
 		}
 		// Need to fetch body?
-		if header.TxHash != types.EmptyRootHash || header.UncleHash != types.EmptyUncleHash {
+		if !header.EmptyBody() {
 			// yes
 			item.Pending |= 0x1
 		}
 		// Do we need to fetch receipts?
-		if fastSync && header.ReceiptHash != types.EmptyRootHash {
+		if fastSync && !header.EmptyReceipts() {
 			item.Pending |= 0x2
 		}
 		r.items[index] = item
@@ -159,13 +178,58 @@ func (r *resultStore) CountCompleted() int {
 func (r *resultStore) countCompleted() int {
 	// We iterate from the already known complete point, and see
 	// if any more has completed since last count
+	// debug
+	/*
+		var (
+			nils         = 0
+			fins         = 0
+			bodyneeds    = 0
+			receiptneeds = 0
+		)
+		var ctx []interface{}
+		for _, item := range r.items {
+			if item == nil {
+				nils++
+			} else {
+				if item.Pending == 0 {
+					fins++
+				} else {
+					if item.Pending&0x01 != 0 {
+						bodyneeds++
+					} else {
+						receiptneeds++
+					}
+				}
+			}
+		}
+		ctx = append(ctx, "items", len(r.items), "nils", nil, "fins", fins,
+			"needB", bodyneeds, "needR", receiptneeds)
+	*/
+	/// end debug
 	index := atomic.LoadInt32(&r.indexIncomplete)
 	for ; ; index++ {
+		if index >= int32(len(r.items)) {
+			break
+		}
 		result := r.items[index]
 		if result == nil || result.Pending > 0 {
 			break
 		}
 	}
+	/*
+		if index < int32(len(r.items)) {
+			//ctx = append(ctx, []interface{}{"index", index, "blocknum", uint64(index) + r.resultOffset}...)
+			if r.items[index] != nil {
+				log.Info("resultstore", ctx...)
+			} else {
+				ctx = append(ctx, []interface{}{"first missing", "nil"}...)
+				log.Info("resultstore", ctx...)
+			}
+		} else {
+			ctx = append(ctx, []interface{}{"first missing", "out of range"}...)
+			log.Info("resultstore", ctx...)
+		}
+	*/
 	atomic.StoreInt32(&r.indexIncomplete, index)
 	return int(index)
 }

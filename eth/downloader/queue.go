@@ -33,7 +33,7 @@ import (
 )
 
 var (
-	blockCacheItems      = 8192             // Maximum number of blocks to cache before throttling the download
+	blockCacheItems      = 8192               // Maximum number of blocks to cache before throttling the download
 	blockCacheMemory     = 64 * 1024 * 1024 // Maximum amount of memory to use for block caching
 	blockCacheSizeWeight = 0.1              // Multiplier to approximate the average block size based on past ones
 )
@@ -99,7 +99,7 @@ type queue struct {
 }
 
 // newQueue creates a new download queue for scheduling block retrieval.
-func newQueue() *queue {
+func newQueue(blockCacheLimit int) *queue {
 	lock := new(sync.RWMutex)
 	return &queue{
 		headerPendPool:   make(map[string]*fetchRequest),
@@ -113,7 +113,7 @@ func newQueue() *queue {
 		receiptPendPool:  make(map[string]*fetchRequest),
 		receiptDonePool:  make(map[common.Hash]struct{}),
 		//resultCache:      make([]*fetchResult, blockCacheItems),
-		resultCache: newResultStore(blockCacheItems),
+		resultCache: newResultStore(blockCacheLimit),
 		active:      sync.NewCond(lock),
 		lock:        lock,
 	}
@@ -252,24 +252,11 @@ func (q *queue) resultSlots(pendPool map[string]*fetchRequest, donePool map[comm
 	// Calculate the number of slots already finished
 	finished := q.resultCache.countCompleted()
 	// Calculate the number of slots currently downloading
-	//firstNum, _ := q.resultCache.NumberSpan()
 	pending := 0
 	//iterations := 0
 	for _, request := range pendPool {
 		pending += len(request.Headers)
-		//for _, header := range request.Headers {
-		//if header.Number.Uint64() < firstNum+uint64(limit) {
-		//	pending++
-		//} else {
-		//	break
-		//}
-		//iterations ++
-		//}
 	}
-	fmt.Printf("resultslots: %d (limit: %d - finished %d - pending %d)\n",
-		limit-finished-pending,
-		limit, finished, pending)
-	// Return the free slots to distribute
 	return limit - finished - pending
 }
 
@@ -318,6 +305,8 @@ func (q *queue) Schedule(headers []*types.Header, from uint64) []*types.Header {
 	q.lock.Lock()
 	defer q.lock.Unlock()
 
+	// if the resultCache pushes back, we can stop trying to shove things in there for now
+	var pushBack error
 	// Insert all the headers prioritised by the contained block number
 	inserts := make([]*types.Header, 0, len(headers))
 	for _, header := range headers {
@@ -336,7 +325,15 @@ func (q *queue) Schedule(headers []*types.Header, from uint64) []*types.Header {
 			log.Warn("Header already scheduled for block fetch", "number", header.Number, "hash", hash)
 			continue
 		}
-		bodyNeeded, receiptNeeded, _, _ := q.resultCache.AddFetch(header, q.mode == FastSync)
+		var bodyNeeded = !header.EmptyBody()
+		var receiptNeeded = q.mode == FastSync && !header.EmptyReceipts()
+
+		if pushBack == nil {
+			bodyNeeded, receiptNeeded, _, pushBack = q.resultCache.AddFetch(header, q.mode == FastSync)
+		}
+		if !receiptNeeded {
+			bodyNeeded = true
+		}
 		// Queue for body retrieval - unless empty block
 		if bodyNeeded {
 			q.blockTaskPool[hash] = header
@@ -494,20 +491,19 @@ func (q *queue) reserveHeaders(p *peerConnection, count int, taskPool map[common
 	send := make([]*types.Header, 0, count)
 	skip := make([]*types.Header, 0)
 
-	progress := false
 	for proc := 0; proc < space && len(send) < count && !taskQueue.Empty(); proc++ {
 		header := taskQueue.PopItem().(*types.Header)
 		hash := header.Hash()
 		_, _, item, _ := q.resultCache.AddFetch(header, q.mode == FastSync)
 		if item == nil {
 			// There are no resultslots available
+			taskQueue.Push(header, -int64(header.Number.Uint64()))
 			break
 		}
 		if item.Pending == 0 {
 			donePool[hash] = struct{}{}
 			delete(taskPool, hash)
 			proc--
-			progress = true
 			continue
 		}
 		// Otherwise unless the peer is known not to have the data, add to the retrieve list
@@ -521,6 +517,7 @@ func (q *queue) reserveHeaders(p *peerConnection, count int, taskPool map[common
 	for _, header := range skip {
 		taskQueue.Push(header, -int64(header.Number.Uint64()))
 	}
+	progress := q.resultCache.HasCompletedItems()
 	if progress {
 		// Wake Results, resultCache was modified
 		q.active.Signal()
@@ -849,9 +846,6 @@ func (q *queue) deliver(id string, taskPool map[common.Hash]*types.Header, taskQ
 		// Clean up a successful fetch
 		request.Headers[acceptCount] = nil
 		acceptCount++
-		//if failure != nil{
-		//	break
-		//}
 	}
 	// Return all failed or missing fetches to the queue
 	for _, header := range request.Headers[acceptCount:] {
