@@ -244,13 +244,13 @@ func (q *queue) ShouldThrottleReceipts() bool {
 // cache.
 func (q *queue) resultSlots(pendPool map[string]*fetchRequest, donePool map[common.Hash]struct{}) int {
 	// Calculate the maximum length capped by the memory limit
-	cacheItems := len(q.resultCache.items)
+	cacheItems := blockCacheItems
 	limit := cacheItems
 	if common.StorageSize(cacheItems)*q.resultSize > common.StorageSize(blockCacheMemory) {
 		limit = int((common.StorageSize(blockCacheMemory) + q.resultSize - 1) / q.resultSize)
 	}
 	// Calculate the number of slots already finished
-	finished := q.resultCache.countCompleted()
+	finished := q.resultCache.countAllCompleted()
 	// Calculate the number of slots currently downloading
 	pending := 0
 	//iterations := 0

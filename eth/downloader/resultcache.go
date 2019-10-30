@@ -152,8 +152,28 @@ func (r *resultStore) CountCompleted() int {
 	return r.countCompleted()
 }
 
-// countCompleted returns the number of items completed
+// countCompleted returns the number of items completed,
 // assumes (at least) rlock is held
+// It counts _all_ items, even after incomplete-gaps
+func (r *resultStore) countAllCompleted() int{
+	// We iterate from the already known complete point, and see
+	// if any more has completed since last count
+	index := atomic.LoadInt32(&r.indexIncomplete)
+	numComplete := index
+	for ; ; index++ {
+		if index >= int32(len(r.items)) {
+			break
+		}
+		if result := r.items[index]; result != nil && result.Pending == 0{
+			numComplete ++
+		}
+	}
+	return int(numComplete)
+
+}
+// countCompleted returns the number of items completed,
+// assumes (at least) rlock is held
+// It aborts at the first incomplete item
 func (r *resultStore) countCompleted() int {
 	// We iterate from the already known complete point, and see
 	// if any more has completed since last count
