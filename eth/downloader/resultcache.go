@@ -21,19 +21,17 @@ package downloader
 
 import (
 	"fmt"
-	"github.com/ethereum/go-ethereum/log"
 	"sync"
 	"sync/atomic"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 type resultStore struct {
-	items        []*fetchResult     // Downloaded but not yet delivered fetch results
-	lock         *sync.RWMutex      // lock protect internals
-	resultOffset uint64             // Offset of the first cached fetch result in the block chain
-	resultSize   common.StorageSize // Approximate size of a block (exponential moving average)
+	items        []*fetchResult // Downloaded but not yet delivered fetch results
+	lock         *sync.RWMutex  // lock protect internals
+	resultOffset uint64         // Offset of the first cached fetch result in the block chain
 
 	// Internal index of first non-completed entry, updated atomically when needed.
 	// If all items are complete, this will equal length(items), so
@@ -45,7 +43,6 @@ func newResultStore(size int) *resultStore {
 	return &resultStore{
 		resultOffset: 0,
 		items:        make([]*fetchResult, size),
-		resultSize:   0, // TODO: use a saner default, left at zero as it was legacy
 		lock:         new(sync.RWMutex),
 	}
 }
@@ -132,15 +129,6 @@ func (r *resultStore) getFetchResult(header *types.Header) (item *fetchResult, i
 	}
 	item = r.items[index]
 	return item, index, stale, err
-}
-
-// numberSpan returns the header number start and end, for the headers
-// currently "allocated" for download (both completed, in-flight and pending)
-func (r *resultStore) NumberSpan() (uint64, uint64) {
-	r.lock.RLock()
-	defer r.lock.RUnlock()
-	return r.resultOffset, r.resultOffset + uint64(len(r.items))
-
 }
 
 // hasCompletedItems returns true if there are processable items available

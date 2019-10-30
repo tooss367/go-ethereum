@@ -113,7 +113,7 @@ func newQueue(blockCacheLimit int) *queue {
 		receiptPendPool:  make(map[string]*fetchRequest),
 		receiptDonePool:  make(map[common.Hash]struct{}),
 		//resultCache:      make([]*fetchResult, blockCacheItems),
-		resultCache: newResultStore(blockCacheLimit),
+		resultCache: newResultStore(blockCacheLimit * 2),
 		active:      sync.NewCond(lock),
 		lock:        lock,
 	}
@@ -140,7 +140,7 @@ func (q *queue) Reset() {
 	q.receiptPendPool = make(map[string]*fetchRequest)
 	q.receiptDonePool = make(map[common.Hash]struct{})
 
-	q.resultCache = newResultStore(blockCacheItems)
+	q.resultCache = newResultStore(blockCacheItems * 2)
 }
 
 // Close marks the end of the sync, unblocking Results.
