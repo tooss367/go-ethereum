@@ -52,32 +52,23 @@ func newResultStore(size int) *resultStore {
 
 // AddFetch adds a header for body/receipt fetching.
 // returning
-// bodyNeeded, receiptNeeded -- bool, tell whether bodies/receipts need additional downloading
+// stale -- if true, this item is already passed, and should not be requested again
 // fetchResult -- if `nil`, that means no fetch was created, and that the
 // if an error is returned, that most likely means backpressure prevents the results from expanding,
 // and someone needs to take care of results
-func (r *resultStore) AddFetch(header *types.Header, fastSync bool) (bodyNeeded, receiptNeeded bool, item *fetchResult, err error) {
+func (r *resultStore) AddFetch(header *types.Header, fastSync bool) (stale bool, item *fetchResult, err error) {
 	hash := header.Hash()
 	r.lock.RLock()
-	item, _, err = r.getFetchResult(header)
+	item, _, stale, err = r.getFetchResult(header)
 	if err != nil {
 		r.lock.RUnlock()
-		//log.Info("resultcache addfetch err [1]", "error", err.Error())
+		log.Info("resultcache addfetch err [1]", "error", err.Error())
 		// can't create a fetchResult right away
-		bodyNeeded = !header.EmptyBody()
-		receiptNeeded = fastSync && !header.EmptyReceipts()
-		// need to ensure it winds up in at least one taskpool, so can't
-		// respond with false,false
-		if !receiptNeeded {
-			bodyNeeded = true
-		}
-		return bodyNeeded, receiptNeeded, nil, err
+		return stale, nil, err
 	}
 	if item != nil {
-		bodyNeeded = (item.Pending)&0x1 != 0
-		receiptNeeded = (item.Pending)&0x2 != 0
 		r.lock.RUnlock()
-		return bodyNeeded, receiptNeeded, item, nil
+		return false, item, nil
 	}
 	r.lock.RUnlock()
 	// Need to create a fetchresult, and as we've just release the Rlock,
@@ -85,18 +76,11 @@ func (r *resultStore) AddFetch(header *types.Header, fastSync bool) (bodyNeeded,
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	var index int
-	item, index, err = r.getFetchResult(header)
+	item, index, stale, err = r.getFetchResult(header)
 	if err != nil {
 		// can't create a fetchResult right away
-		bodyNeeded = !header.EmptyBody()
-		receiptNeeded = fastSync && !header.EmptyReceipts()
-		// need to ensure it winds up in at least one taskpool, so can't
-		// respond with false,false
-		if !receiptNeeded {
-			bodyNeeded = true
-		}
 		log.Info("resultcache addfetch err [2]", "error", err.Error())
-		return bodyNeeded, receiptNeeded, nil, err
+		return stale, nil, err
 
 	}
 	if item == nil {
@@ -115,32 +99,39 @@ func (r *resultStore) AddFetch(header *types.Header, fastSync bool) (bodyNeeded,
 		}
 		r.items[index] = item
 	}
-	bodyNeeded = (item.Pending)&0x1 != 0
-	receiptNeeded = (item.Pending)&0x2 != 0
-	return bodyNeeded, receiptNeeded, item, nil
+	return false, item, nil
 
 }
 
-func (r *resultStore) GetFetchResult(header *types.Header) (*fetchResult, error) {
+func (r *resultStore) GetFetchResult(header *types.Header) (*fetchResult, bool, error) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
-	res, _, err := r.getFetchResult(header)
-	return res, err
+	res, _, stale, err := r.getFetchResult(header)
+	return res, stale, err
 }
 
-func (r *resultStore) getFetchResult(header *types.Header) (*fetchResult, int, error) {
-	index := int(header.Number.Int64() - int64(r.resultOffset))
+// getFetchResult returns the fetchResult corresponding to the given item, and the index where
+// the result is stored.
+// There are two ways it can error:
+// 1. The header is too far off in the future, and we don't have room for it.
+// 2. The header is stale, and the results for that header has already been delivered upstream.
+func (r *resultStore) getFetchResult(header *types.Header) (item *fetchResult, index int, stale bool, err error) {
+	index = int(header.Number.Int64() - int64(r.resultOffset))
 	if index >= len(r.items) {
-		return nil, 0, fmt.Errorf("index allocation went beyond available resultStore space "+
+		err = fmt.Errorf("index allocation went beyond available resultStore space "+
 			"(index [%d] = header [%d] - resultOffset [%d], len(resultStore) = %d",
 			index, header.Number.Int64(), r.resultOffset, len(r.items))
+		return item, index, stale, err
 	}
 	if index < 0 {
-		return nil, 0, fmt.Errorf("index allocation went beyond available resultStore space "+
+		stale = true
+		err = fmt.Errorf("index allocation went beyond available resultStore space "+
 			"(index [%d] = header [%d] - resultOffset [%d], len(resultStore) = %d",
 			index, header.Number.Int64(), r.resultOffset, len(r.items))
+		return item, index, stale, err
 	}
-	return r.items[index], index, nil
+	item = r.items[index]
+	return item, index, stale, err
 }
 
 // numberSpan returns the header number start and end, for the headers
