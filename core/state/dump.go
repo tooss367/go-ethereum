@@ -17,7 +17,6 @@
 package state
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 
@@ -89,7 +88,8 @@ func (self iterativeDump) onRoot(root common.Hash) {
 func (self *StateDB) dump(c collector, excludeCode, excludeStorage, excludeMissingPreimages bool, searchSlot []byte) {
 	// if user is searching for particular slot value
 	var foundSlot bool
-
+	var searchHash common.Hash
+	searchHash.SetBytes(searchSlot)
 	emptyAddress := (common.Address{})
 	missingPreimages := 0
 	c.onRoot(self.trie.Hash())
@@ -128,10 +128,17 @@ func (self *StateDB) dump(c collector, excludeCode, excludeStorage, excludeMissi
 					log.Error("Failed to decode the value returned by iterator", "error", err)
 					continue
 				}
-				if searchSlot != nil && bytes.Equal(content, searchSlot) {
-					foundSlot = true
+				if searchSlot != nil {
+					var v common.Hash
+					v.SetBytes(content)
+					if v == searchHash {
+						foundSlot = true
+						account.Storage[common.BytesToHash(self.trie.GetKey(storageIt.Key))] = common.Bytes2Hex(content)
+					}
 				}
-				account.Storage[common.BytesToHash(self.trie.GetKey(storageIt.Key))] = common.Bytes2Hex(content)
+				if !excludeStorage {
+					account.Storage[common.BytesToHash(self.trie.GetKey(storageIt.Key))] = common.Bytes2Hex(content)
+				}
 			}
 		}
 		if searchSlot == nil || foundSlot {
