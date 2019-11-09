@@ -200,6 +200,10 @@ var (
 		Name:  "incompletes",
 		Usage: "Include accounts for which we don't have the address (missing preimage)",
 	}
+	SearchSlot = cli.StringFlag{
+		Name:  "searchslot",
+		Usage: "Include only accounts with a slot containing the given value",
+	}
 	ExcludeCodeFlag = cli.BoolFlag{
 		Name:  "nocode",
 		Usage: "Exclude contract code (save db lookups)",

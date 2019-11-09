@@ -166,6 +166,7 @@ Remove blockchain and state databases`,
 			utils.ExcludeCodeFlag,
 			utils.ExcludeStorageFlag,
 			utils.IncludeIncompletesFlag,
+			utils.SearchSlot,
 		},
 		Category: "BLOCKCHAIN COMMANDS",
 		Description: `
@@ -528,8 +529,13 @@ func dump(ctx *cli.Context) error {
 			excludeCode := ctx.Bool(utils.ExcludeCodeFlag.Name)
 			excludeStorage := ctx.Bool(utils.ExcludeStorageFlag.Name)
 			includeMissing := ctx.Bool(utils.IncludeIncompletesFlag.Name)
+			var searchSlot []byte
+			if searchSlotHex := ctx.String(utils.SearchSlot.Name); searchSlotHex != "" {
+				searchSlot = common.FromHex(searchSlotHex)
+				log.Info("Searching for slot", "slot value", common.Bytes2Hex(searchSlot), "hex", searchSlotHex)
+			}
 			if ctx.Bool(utils.IterativeOutputFlag.Name) {
-				state.IterativeDump(excludeCode, excludeStorage, !includeMissing, json.NewEncoder(os.Stdout))
+				state.IterativeDump(excludeCode, excludeStorage, !includeMissing, json.NewEncoder(os.Stdout), searchSlot)
 			} else {
 				if includeMissing {
 					fmt.Printf("If you want to include accounts with missing preimages, you need iterative output, since" +

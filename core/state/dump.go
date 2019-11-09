@@ -17,6 +17,7 @@
 package state
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 
@@ -85,12 +86,16 @@ func (self iterativeDump) onRoot(root common.Hash) {
 	}{root})
 }
 
-func (self *StateDB) dump(c collector, excludeCode, excludeStorage, excludeMissingPreimages bool) {
+func (self *StateDB) dump(c collector, excludeCode, excludeStorage, excludeMissingPreimages bool, searchSlot []byte) {
+	// if user is searching for particular slot value
+	var foundSlot bool
+
 	emptyAddress := (common.Address{})
 	missingPreimages := 0
 	c.onRoot(self.trie.Hash())
 	it := trie.NewIterator(self.trie.NodeIterator(nil))
 	for it.Next() {
+		foundSlot = false
 		var data Account
 		if err := rlp.DecodeBytes(it.Value, &data); err != nil {
 			panic(err)
@@ -114,7 +119,7 @@ func (self *StateDB) dump(c collector, excludeCode, excludeStorage, excludeMissi
 		if !excludeCode {
 			account.Code = common.Bytes2Hex(obj.Code(self.db))
 		}
-		if !excludeStorage {
+		if !excludeStorage || searchSlot != nil {
 			account.Storage = make(map[common.Hash]string)
 			storageIt := trie.NewIterator(obj.getTrie(self.db).NodeIterator(nil))
 			for storageIt.Next() {
@@ -123,10 +128,15 @@ func (self *StateDB) dump(c collector, excludeCode, excludeStorage, excludeMissi
 					log.Error("Failed to decode the value returned by iterator", "error", err)
 					continue
 				}
+				if searchSlot != nil && bytes.Equal(content, searchSlot) {
+					foundSlot = true
+				}
 				account.Storage[common.BytesToHash(self.trie.GetKey(storageIt.Key))] = common.Bytes2Hex(content)
 			}
 		}
-		c.onAccount(addr, account)
+		if searchSlot == nil || foundSlot {
+			c.onAccount(addr, account)
+		}
 	}
 	if missingPreimages > 0 {
 		log.Warn("Dump incomplete due to missing preimages", "missing", missingPreimages)
@@ -138,7 +148,7 @@ func (self *StateDB) RawDump(excludeCode, excludeStorage, excludeMissingPreimage
 	dump := &Dump{
 		Accounts: make(map[common.Address]DumpAccount),
 	}
-	self.dump(dump, excludeCode, excludeStorage, excludeMissingPreimages)
+	self.dump(dump, excludeCode, excludeStorage, excludeMissingPreimages, nil)
 	return *dump
 }
 
@@ -153,6 +163,6 @@ func (self *StateDB) Dump(excludeCode, excludeStorage, excludeMissingPreimages b
 }
 
 // IterativeDump dumps out accounts as json-objects, delimited by linebreaks on stdout
-func (self *StateDB) IterativeDump(excludeCode, excludeStorage, excludeMissingPreimages bool, output *json.Encoder) {
-	self.dump(iterativeDump(*output), excludeCode, excludeStorage, excludeMissingPreimages)
+func (self *StateDB) IterativeDump(excludeCode, excludeStorage, excludeMissingPreimages bool, output *json.Encoder, searchSlot []byte) {
+	self.dump(iterativeDump(*output), excludeCode, excludeStorage, excludeMissingPreimages, searchSlot)
 }
