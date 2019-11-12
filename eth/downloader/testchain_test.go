@@ -18,6 +18,7 @@ package downloader
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
 	"math/big"
 	"sync"
 
@@ -52,6 +53,7 @@ func init() {
 	go func() { testChainForkLightB = testChainBase.makeFork(forkLen, false, 2); wg.Done() }()
 	go func() { testChainForkHeavy = testChainBase.makeFork(forkLen, true, 3); wg.Done() }()
 	wg.Wait()
+	log.Root().SetHandler(log.StdoutHandler)
 }
 
 type testChain struct {

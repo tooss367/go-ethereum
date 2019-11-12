@@ -19,6 +19,7 @@ package downloader
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
 	"math/big"
 	"strings"
 	"sync"
@@ -347,8 +348,7 @@ func (dl *downloadTester) Rollback(hashes []common.Hash) {
 func (dl *downloadTester) newPeer(id string, version int, chain *testChain) error {
 	dl.lock.Lock()
 	defer dl.lock.Unlock()
-
-	peer := &downloadTesterPeer{dl: dl, id: id, chain: chain}
+	peer := newDownloadTesterPeer(dl, id, chain)
 	dl.peers[id] = peer
 	return dl.downloader.RegisterPeer(id, version, peer)
 }
@@ -368,6 +368,23 @@ type downloadTesterPeer struct {
 	lock          sync.RWMutex
 	chain         *testChain
 	missingStates map[common.Hash]bool // State entries that fast sync should not return
+
+	reqHeadersByHash   func(*downloadTesterPeer, common.Hash, int, int, bool) error
+	reqHeadersByNumber func(*downloadTesterPeer, uint64, int, int, bool) error
+	reqBodies          func(dlp *downloadTesterPeer, hashes []common.Hash) error
+	reqReceipts        func(dlp *downloadTesterPeer, hashes []common.Hash) error
+}
+
+func newDownloadTesterPeer(dl *downloadTester, id string, chain *testChain) *downloadTesterPeer {
+	return &downloadTesterPeer{
+		dl:                 dl,
+		id:                 id,
+		chain:              chain,
+		reqHeadersByHash:   DefaultDlpRequestHeadersByHash,
+		reqHeadersByNumber: DefaultDlpRequestHeadersByNumber,
+		reqBodies:          DefaultDLPRequestBodies,
+		reqReceipts:        DefaultDlpRequestReceipts,
+	}
 }
 
 // Head constructs a function to retrieve a peer's current head hash
@@ -381,10 +398,13 @@ func (dlp *downloadTesterPeer) Head() (common.Hash, *big.Int) {
 // origin; associated with a particular peer in the download tester. The returned
 // function can be used to retrieve batches of headers from the particular peer.
 func (dlp *downloadTesterPeer) RequestHeadersByHash(origin common.Hash, amount int, skip int, reverse bool) error {
+	return dlp.reqHeadersByHash(dlp, origin, amount, skip, reverse)
+}
+
+func DefaultDlpRequestHeadersByHash(dlp *downloadTesterPeer, origin common.Hash, amount int, skip int, reverse bool) error {
 	if reverse {
 		panic("reverse header requests not supported")
 	}
-
 	result := dlp.chain.headersByHash(origin, amount, skip)
 	go dlp.dl.downloader.DeliverHeaders(dlp.id, result)
 	return nil
@@ -394,10 +414,12 @@ func (dlp *downloadTesterPeer) RequestHeadersByHash(origin common.Hash, amount i
 // origin; associated with a particular peer in the download tester. The returned
 // function can be used to retrieve batches of headers from the particular peer.
 func (dlp *downloadTesterPeer) RequestHeadersByNumber(origin uint64, amount int, skip int, reverse bool) error {
+	return dlp.reqHeadersByNumber(dlp, origin, amount, skip, reverse)
+}
+func DefaultDlpRequestHeadersByNumber(dlp *downloadTesterPeer, origin uint64, amount int, skip int, reverse bool) error {
 	if reverse {
 		panic("reverse header requests not supported")
 	}
-
 	result := dlp.chain.headersByNumber(origin, amount, skip)
 	go dlp.dl.downloader.DeliverHeaders(dlp.id, result)
 	return nil
@@ -407,6 +429,10 @@ func (dlp *downloadTesterPeer) RequestHeadersByNumber(origin uint64, amount int,
 // peer in the download tester. The returned function can be used to retrieve
 // batches of block bodies from the particularly requested peer.
 func (dlp *downloadTesterPeer) RequestBodies(hashes []common.Hash) error {
+	return dlp.reqBodies(dlp, hashes)
+}
+
+func DefaultDLPRequestBodies(dlp *downloadTesterPeer, hashes []common.Hash) error {
 	txs, uncles := dlp.chain.bodies(hashes)
 	go dlp.dl.downloader.DeliverBodies(dlp.id, txs, uncles)
 	return nil
@@ -416,6 +442,10 @@ func (dlp *downloadTesterPeer) RequestBodies(hashes []common.Hash) error {
 // peer in the download tester. The returned function can be used to retrieve
 // batches of block receipts from the particularly requested peer.
 func (dlp *downloadTesterPeer) RequestReceipts(hashes []common.Hash) error {
+	return dlp.reqReceipts(dlp, hashes)
+}
+
+func DefaultDlpRequestReceipts(dlp *downloadTesterPeer, hashes []common.Hash) error {
 	receipts := dlp.chain.receipts(hashes)
 	go dlp.dl.downloader.DeliverReceipts(dlp.id, receipts)
 	return nil
@@ -600,7 +630,6 @@ func testForkedSync(t *testing.T, protocol int, mode SyncMode) {
 	t.Parallel()
 
 	tester := newTester()
-	defer tester.terminate()
 
 	chainA := testChainForkLightA.shorten(testChainBase.len() + 80)
 	chainB := testChainForkLightB.shorten(testChainBase.len() + 80)
@@ -618,6 +647,7 @@ func testForkedSync(t *testing.T, protocol int, mode SyncMode) {
 		t.Fatalf("failed to synchronise blocks: %v", err)
 	}
 	assertOwnForkedChain(t, tester, testChainBase.len(), []int{chainA.len(), chainB.len()})
+	tester.terminate()
 }
 
 // Tests that synchronising against a much shorter but much heavyer fork works
@@ -1067,6 +1097,54 @@ func testInvalidHeaderRollback(t *testing.T, protocol int, mode SyncMode) {
 	}
 }
 
+func TestWithhold64Fast(t *testing.T) { testWithholdAttack(t, 64, FastSync) }
+
+func testWithholdAttack(t *testing.T, protocol int, mode SyncMode) {
+	t.Parallel()
+
+	tester := newTester()
+
+	// Create a small enough block chain to download
+	targetBlocks := 3*fsHeaderSafetyNet + 256 + fsMinFullBlocks
+	chain := testChainBase.shorten(targetBlocks)
+	// Attempt to sync with an attacker that withholds promised blocks after the
+	// fast sync pivot point. This could be a trial to leave the node with a bad
+	// but already imported pivot block.
+	withholdAttackChain := chain.shorten(chain.len())
+	tester.newPeer("withhold-attack", protocol, withholdAttackChain)
+	// Don't deliver the receipts, prevent head block from progressing
+	tester.peers["withhold-attack"].reqReceipts = func(dlp *downloadTesterPeer, hashes []common.Hash) error {
+		return nil
+	}
+	// Here we keep delivering close enough to the head that the recipient will
+	// ignore whatever we send, due to the reorg protection
+	tester.peers["withhold-attack"].reqHeadersByNumber = func(dlp *downloadTesterPeer, origin uint64, amount int, skip int, reverse bool) error{
+		if origin >= 6335 {
+			log.Info("withholding peer, request headers by number",
+				"origin", origin, "amount", amount, "newAmount", 2, "skip", skip, "reverse", reverse,
+				"total length", dlp.chain.len())
+			amount = 2
+		}
+		log.Info("downloadTesterPeer: fetching headers for delivery", "id", dlp.id, "num", amount)
+		result := dlp.chain.headersByNumber(origin, amount, skip)
+		log.Info("downloadTesterPeer: about to make delivery", "id", dlp.id, "num", len(result))
+		dlp.dl.downloader.DeliverHeaders(dlp.id, result)
+		return nil
+	}
+
+	if err := tester.sync("withhold-attack", nil, mode); err == nil {
+		t.Fatalf("succeeded withholding attacker synchronisation")
+	}
+	if head := tester.CurrentHeader().Number.Int64(); int(head) > 2*fsHeaderSafetyNet+MaxHeaderFetch {
+		t.Errorf("rollback head mismatch: have %v, want at most %v", head, 2*fsHeaderSafetyNet+MaxHeaderFetch)
+	}
+	if mode == FastSync {
+		if head := tester.CurrentBlock().NumberU64(); head != 0 {
+			t.Errorf("fast sync pivot block #%d not rolled back", head)
+		}
+	}
+}
+
 // Tests that a peer advertising an high TD doesn't get to stall the downloader
 // afterwards by not sending any useful hashes.
 func TestHighTDStarvationAttack62(t *testing.T)      { testHighTDStarvationAttack(t, 62, FullSync) }
@@ -1236,9 +1314,8 @@ func TestForkedSyncProgress64Light(t *testing.T) { testForkedSyncProgress(t, 64,
 
 func testForkedSyncProgress(t *testing.T, protocol int, mode SyncMode) {
 	t.Parallel()
-
+	log.Root().SetHandler(log.StdoutHandler)
 	tester := newTester()
-	defer tester.terminate()
 	chainA := testChainForkLightA.shorten(testChainBase.len() + MaxHashFetch)
 	chainB := testChainForkLightB.shorten(testChainBase.len() + MaxHashFetch)
 
@@ -1297,6 +1374,7 @@ func testForkedSyncProgress(t *testing.T, protocol int, mode SyncMode) {
 		CurrentBlock:  uint64(chainB.len() - 1),
 		HighestBlock:  uint64(chainB.len() - 1),
 	})
+	tester.terminate()
 }
 
 // Tests that if synchronisation is aborted due to some failure, then the progress
