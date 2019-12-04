@@ -26,7 +26,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rlp"
-	"github.com/steakknife/bloomfilter"
+	"github.com/holiman/bloomfilter"
 )
 
 var (
@@ -97,7 +97,8 @@ type diffLayer struct {
 	storageList map[common.Hash][]common.Hash          // List of storage slots for iterated retrievals, one per account. Any existing lists are sorted if non-nil
 	storageData map[common.Hash]map[common.Hash][]byte // Keyed storage slots for direct retrival. one per account (nil means deleted)
 
-	diffed *bloomfilter.Filter // Bloom filter tracking all the diffed items up to the disk layer
+	diffed     *bloomfilter.Filter // Bloom filter tracking local diffed items
+	cumulative *bloomfilter.Filter // cumulumative bloom filter -- by default set to nil
 
 	lock sync.RWMutex
 }
@@ -141,38 +142,20 @@ func newDiffLayer(parent snapshot, root common.Hash, accounts map[common.Hash][]
 		accountData: accounts,
 		storageData: storage,
 	}
-	switch parent := parent.(type) {
-	case *diskLayer:
-		dl.rebloom(parent, true)
-	case *diffLayer:
-		dl.rebloom(parent.origin, true)
-	default:
-		panic("unknown parent type")
-	}
+	dl.initBloom()
 	return dl
 }
 
-// rebloom discards the layer's current bloom and rebuilds it from scratch based
-// on the parent's and the local diffs.
-func (dl *diffLayer) rebloom(origin *diskLayer, creation bool) {
+// initBloom builds the layer's bloom and calculates memory consumption
+func (dl *diffLayer) initBloom() {
 	dl.lock.Lock()
 	defer dl.lock.Unlock()
 
 	defer func(start time.Time) {
 		snapshotBloomIndexTimer.Update(time.Since(start))
 	}(time.Now())
-
-	// Inject the new origin that triggered the rebloom
-	dl.origin = origin
-
 	// Retrieve the parent bloom or create a fresh empty one
-	if parent, ok := dl.parent.(*diffLayer); ok {
-		parent.lock.RLock()
-		dl.diffed, _ = parent.diffed.Copy()
-		parent.lock.RUnlock()
-	} else {
-		dl.diffed, _ = bloomfilter.New(uint64(bloomSize), uint64(bloomFuncs))
-	}
+	dl.diffed, _ = bloomfilter.New(uint64(bloomSize), uint64(bloomFuncs))
 	// Iterate over all the accounts and storage slots and index them
 	// Also count memory consumption while we're at it
 	dl.memory = 0
@@ -183,9 +166,7 @@ func (dl *diffLayer) rebloom(origin *diskLayer, creation bool) {
 		nHashes++
 	}
 	dl.memory = dataSize + nHashes*uint64(common.HashLength)
-	if creation {
-		snapshotDirtyAccountWriteMeter.Mark(int64(dataSize))
-	}
+	snapshotDirtyAccountWriteMeter.Mark(int64(dataSize))
 
 	dataSize, nHashes = uint64(0), uint64(0)
 	for accountHash, slots := range dl.storageData {
@@ -196,16 +177,38 @@ func (dl *diffLayer) rebloom(origin *diskLayer, creation bool) {
 		}
 	}
 	dl.memory += dataSize + nHashes*uint64(common.HashLength)
-	if creation {
-		snapshotDirtyStorageWriteMeter.Mark(int64(dataSize))
+	snapshotDirtyStorageWriteMeter.Mark(int64(dataSize))
+}
+
+// Prepare prepares the difflayer for execution, and creates the cumulative
+// bloom
+func (dl *diffLayer) Prepare(origin *diskLayer) {
+	dl.lock.Lock()
+	dl.cumulative, _ = dl.diffed.Copy()
+	layer := dl
+	for {
+		if parent, ok := layer.parent.(*diffLayer); ok {
+			parent.lock.RLock()
+			dl.cumulative.UnionInPlace(parent.diffed)
+			parent.lock.RUnlock()
+		} else {
+			break
+		}
 	}
+	dl.origin = origin
+	dl.lock.Unlock()
 	// Calculate the current false positive rate and update the error rate meter.
-	// This is a bit cheating because subsequent layers will overwrite it, but it
-	// should be fine, we're only interested in ballpark figures.
-	k := float64(dl.diffed.K())
-	n := float64(dl.diffed.N())
-	m := float64(dl.diffed.M())
+	k := float64(dl.cumulative.K())
+	n := float64(dl.cumulative.N())
+	m := float64(dl.cumulative.M())
 	snapshotBloomErrorGauge.Update(math.Pow(1.0-math.Exp((-k)*(n+0.5)/(m-1)), k))
+
+}
+
+func (dl *diffLayer) Release() {
+	dl.lock.Lock()
+	dl.cumulative = nil
+	dl.lock.Unlock()
 }
 
 // Root returns the root hash for which this snapshot was made.
@@ -245,7 +248,7 @@ func (dl *diffLayer) AccountRLP(hash common.Hash) ([]byte, error) {
 	// Check the bloom filter first whether there's even a point in reaching into
 	// all the maps in all the layers below
 	dl.lock.RLock()
-	hit := dl.diffed.Contains(accountBloomHasher(hash))
+	hit := dl.cumulative.Contains(accountBloomHasher(hash))
 	dl.lock.RUnlock()
 
 	// If the bloom filter misses, don't even bother with traversing the memory
@@ -299,7 +302,7 @@ func (dl *diffLayer) Storage(accountHash, storageHash common.Hash) ([]byte, erro
 	// Check the bloom filter first whether there's even a point in reaching into
 	// all the maps in all the layers below
 	dl.lock.RLock()
-	hit := dl.diffed.Contains(storageBloomHasher{accountHash, storageHash})
+	hit := dl.cumulative.Contains(storageBloomHasher{accountHash, storageHash})
 	dl.lock.RUnlock()
 
 	// If the bloom filter misses, don't even bother with traversing the memory
