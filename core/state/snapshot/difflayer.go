@@ -143,9 +143,9 @@ func newDiffLayer(parent snapshot, root common.Hash, accounts map[common.Hash][]
 	}
 	switch parent := parent.(type) {
 	case *diskLayer:
-		dl.rebloom(parent)
+		dl.rebloom(parent, true)
 	case *diffLayer:
-		dl.rebloom(parent.origin)
+		dl.rebloom(parent.origin, true)
 	default:
 		panic("unknown parent type")
 	}
@@ -154,7 +154,7 @@ func newDiffLayer(parent snapshot, root common.Hash, accounts map[common.Hash][]
 
 // rebloom discards the layer's current bloom and rebuilds it from scratch based
 // on the parent's and the local diffs.
-func (dl *diffLayer) rebloom(origin *diskLayer) {
+func (dl *diffLayer) rebloom(origin *diskLayer, creation bool) {
 	dl.lock.Lock()
 	defer dl.lock.Unlock()
 
@@ -183,7 +183,9 @@ func (dl *diffLayer) rebloom(origin *diskLayer) {
 		nHashes++
 	}
 	dl.memory = dataSize + nHashes*uint64(common.HashLength)
-	snapshotDirtyAccountWriteMeter.Mark(int64(dataSize))
+	if creation {
+		snapshotDirtyAccountWriteMeter.Mark(int64(dataSize))
+	}
 
 	dataSize, nHashes = uint64(0), uint64(0)
 	for accountHash, slots := range dl.storageData {
@@ -194,7 +196,9 @@ func (dl *diffLayer) rebloom(origin *diskLayer) {
 		}
 	}
 	dl.memory += dataSize + nHashes*uint64(common.HashLength)
-	snapshotDirtyStorageWriteMeter.Mark(int64(dataSize))
+	if creation {
+		snapshotDirtyStorageWriteMeter.Mark(int64(dataSize))
+	}
 	// Calculate the current false positive rate and update the error rate meter.
 	// This is a bit cheating because subsequent layers will overwrite it, but it
 	// should be fine, we're only interested in ballpark figures.
