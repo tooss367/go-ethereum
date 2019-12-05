@@ -155,7 +155,15 @@ func (dl *diffLayer) initBloom() {
 		snapshotBloomIndexTimer.Update(time.Since(start))
 	}(time.Now())
 	// Retrieve the parent bloom or create a fresh empty one
-	dl.diffed, _ = bloomfilter.New(uint64(bloomSize), uint64(bloomFuncs))
+	// We need to use the same keys as the parent bloom if we want to be able
+	// to make union later
+	if parent, ok := dl.parent.(*diffLayer); ok {
+		parent.lock.RLock()
+		dl.diffed, _ = parent.diffed.NewCompatible()
+		parent.lock.RUnlock()
+	} else {
+		dl.diffed, _ = bloomfilter.New(uint64(bloomSize), uint64(bloomFuncs))
+	}
 	// Iterate over all the accounts and storage slots and index them
 	// Also count memory consumption while we're at it
 	dl.memory = 0
