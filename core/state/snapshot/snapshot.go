@@ -265,6 +265,7 @@ func (t *Tree) Cap(root common.Hash, layers int) error {
 
 		// Replace the entire snapshot tree with the flat base
 		t.layers = map[common.Hash]snapshot{base.root: base}
+		t.diskLayer = base
 		return nil
 
 	case 1:
@@ -293,8 +294,10 @@ func (t *Tree) Cap(root common.Hash, layers int) error {
 	default:
 		// Many layers requested to be retained, cap normally
 		persisted = t.cap(diff, layers)
+		if persisted != nil {
+			t.diskLayer = persisted
+		}
 	}
-	t.diskLayer = persisted
 	// Remove any layer that is stale or links into a stale layer
 	children := make(map[common.Hash][]common.Hash)
 	for root, snap := range t.layers {
@@ -564,7 +567,9 @@ func (t *Tree) Rebuild(root common.Hash) {
 	// Start generating a new snapshot from scratch on a backgroung thread. The
 	// generator will run a wiper first if there's not one running right now.
 	log.Info("Rebuilding state snapshot")
+	diskLayer := generateSnapshot(t.diskdb, t.triedb, t.cache, root, wiper)
+	t.diskLayer = diskLayer
 	t.layers = map[common.Hash]snapshot{
-		root: generateSnapshot(t.diskdb, t.triedb, t.cache, root, wiper),
+		root: diskLayer,
 	}
 }
