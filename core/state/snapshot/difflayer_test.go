@@ -351,8 +351,8 @@ func BenchmarkJournal(b *testing.B) {
 // BenchmarkBloom checks how long it takes to do a full rebloom of all layers,
 // compared to doing a 128-layer merge of existing bloom
 //
-//BenchmarkBloom/bloom_init-6         	      40	  27780305 ns/op
-//BenchmarkBloom/merge-6              	    6768	    184479 ns/op
+// BenchmarkBloom/bloom_init-6         	      42	  27876166 ns/op
+// BenchmarkBloom/merge-6              	     782	   1603802 ns/op
 //
 func BenchmarkBloom(b *testing.B) {
 	// First, we set up 128 diff layers, with 1K items each
