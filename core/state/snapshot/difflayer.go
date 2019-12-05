@@ -191,6 +191,7 @@ func (dl *diffLayer) Prepare(origin *diskLayer) {
 			parent.lock.RLock()
 			dl.cumulative.UnionInPlace(parent.diffed)
 			parent.lock.RUnlock()
+			layer = parent
 		} else {
 			break
 		}
