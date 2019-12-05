@@ -408,6 +408,7 @@ func (dl *diffLayer) flatten() snapshot {
 		parent.storageData[accountHash] = comboData
 	}
 	// Return the combo parent
+	parent.diffed.UnionInPlace(dl.diffed)
 	return &diffLayer{
 		parent:      parent.parent,
 		origin:      parent.origin,
@@ -416,7 +417,7 @@ func (dl *diffLayer) flatten() snapshot {
 		storageData: parent.storageData,
 		accountList: parent.accountList,
 		accountData: parent.accountData,
-		diffed:      dl.diffed,
+		diffed:      parent.diffed,
 		memory:      parent.memory + dl.memory,
 	}
 }
