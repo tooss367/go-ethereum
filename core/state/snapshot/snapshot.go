@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -29,6 +30,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/trie"
+	"github.com/holiman/bloomfilter"
 )
 
 var (
@@ -64,8 +66,9 @@ var (
 	snapshotFlushStorageItemMeter = metrics.NewRegisteredMeter("state/snapshot/flush/storage/item", nil)
 	snapshotFlushStorageSizeMeter = metrics.NewRegisteredMeter("state/snapshot/flush/storage/size", nil)
 
-	snapshotBloomIndexTimer = metrics.NewRegisteredResettingTimer("state/snapshot/bloom/index", nil)
-	snapshotBloomErrorGauge = metrics.NewRegisteredGaugeFloat64("state/snapshot/bloom/error", nil)
+	snapshotBloomPrepareTimer = metrics.NewRegisteredResettingTimer("state/snapshot/bloom/prepare", nil)
+	snapshotBloomIndexTimer   = metrics.NewRegisteredResettingTimer("state/snapshot/bloom/index", nil)
+	snapshotBloomErrorGauge   = metrics.NewRegisteredGaugeFloat64("state/snapshot/bloom/error", nil)
 
 	snapshotBloomAccountTrueHitMeter  = metrics.NewRegisteredMeter("state/snapshot/bloom/account/truehit", nil)
 	snapshotBloomAccountFalseHitMeter = metrics.NewRegisteredMeter("state/snapshot/bloom/account/falsehit", nil)
@@ -106,7 +109,6 @@ type Snapshot interface {
 	// Storage directly retrieves the storage data associated with a particular hash,
 	// within a particular account.
 	Storage(accountHash, storageHash common.Hash) ([]byte, error)
-	Release()
 }
 
 // snapshot is the internal version of the snapshot data layer that supports some
@@ -147,6 +149,9 @@ type Tree struct {
 	layers    map[common.Hash]snapshot // Collection of all known layers
 	lock      sync.RWMutex
 	diskLayer *diskLayer // The underlying disklayer
+	// The snapshot tree maintains a mapping of cumulative blooms. These are
+	// reused, but cleared once new layers are added
+	cumulativeBlooms map[common.Hash]*bloomfilter.Filter
 }
 
 // New attempts to load an already existing snapshot from a persistent key-value
@@ -189,6 +194,9 @@ func New(diskdb ethdb.KeyValueStore, triedb *trie.Database, cache int, root comm
 }
 
 func (t *Tree) PrepareSnapshot(blockRoot common.Hash) Snapshot {
+	defer func(start time.Time) {
+		snapshotBloomPrepareTimer.Update(time.Since(start))
+	}(time.Now())
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 	if snap := t.layers[blockRoot]; snap != nil {
@@ -294,9 +302,6 @@ func (t *Tree) Cap(root common.Hash, layers int) error {
 	default:
 		// Many layers requested to be retained, cap normally
 		persisted = t.cap(diff, layers)
-		if persisted != nil {
-			t.diskLayer = persisted
-		}
 	}
 	// Remove any layer that is stale or links into a stale layer
 	children := make(map[common.Hash][]common.Hash)
@@ -319,7 +324,21 @@ func (t *Tree) Cap(root common.Hash, layers int) error {
 			remove(root)
 		}
 	}
-	// If the disk layer was modified, regenerate all the cummulative blooms
+	// If the disk layer was modified, wipe all the cumulative blooms
+	if persisted != nil {
+		// Update ref
+		t.diskLayer = persisted
+		var wipeCumulative func(root common.Hash)
+		wipeCumulative = func(root common.Hash) {
+			if diff, ok := t.layers[root].(*diffLayer); ok {
+				diff.cumulative = nil
+			}
+			for _, child := range children[root] {
+				wipeCumulative(child)
+			}
+		}
+		wipeCumulative(persisted.root)
+	}
 	return nil
 }
 
