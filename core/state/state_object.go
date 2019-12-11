@@ -301,8 +301,6 @@ func (s *stateObject) updateTrie(db Database) Trie {
 	}
 	// Retrieve the snapshot storage map for the object
 	var storage map[common.Hash][]byte
-	if s.db.snap != nil {
-	}
 	var changes = false
 	for key, value := range s.pendingStorage {
 		// Skip noop changes, persist actual changes
