@@ -742,7 +742,6 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 			obj.finalise()
 		}
 		s.stateObjectsPending[addr] = struct{}{}
-		s.stateObjectsDirty[addr] = struct{}{}
 	}
 	// Invalidate journal because reverting across transactions is not allowed.
 	s.clearJournalAndRefund()
@@ -773,6 +772,7 @@ func (s *StateDB) intermediateRootNoHashing(deleteEmptyObjects bool) {
 		} else {
 			obj.updateRoot(s.db)
 			s.updateStateObject(obj)
+			s.stateObjectsDirty[addr] = struct{}{}
 		}
 	}
 	if len(s.stateObjectsPending) > 0 {
@@ -805,6 +805,8 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 		obj := s.stateObjects[addr]
 		if obj.deleted {
 			s.deleteStateObject(obj)
+		}else{
+			s.stateObjectsDirty[addr] = struct{}{}
 		}
 	}
 	if len(s.stateObjectsPending) > 0 {
