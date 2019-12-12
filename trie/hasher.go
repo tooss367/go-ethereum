@@ -67,6 +67,9 @@ func newHasher(onleaf LeafCallback) *hasher {
 }
 
 func returnHasherToPool(h *hasher) {
+	// Clear onleaf, to make sure closures don't hold references that  prevent GC
+	// from collecting stuff
+	h.onleaf = nil
 	hasherPool.Put(h)
 }
 

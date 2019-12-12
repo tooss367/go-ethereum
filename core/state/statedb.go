@@ -799,7 +799,17 @@ func (s *StateDB) clearJournalAndRefund() {
 // Commit writes the state to the underlying in-memory trie database.
 func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 	// Finalize any pending changes and merge everything into the tries
-	s.intermediateRootNoHashing(deleteEmptyObjects)
+	s.Finalise(deleteEmptyObjects)
+	// Handle all pending changes
+	for addr := range s.stateObjectsPending {
+		obj := s.stateObjects[addr]
+		if obj.deleted {
+			s.deleteStateObject(obj)
+		}
+	}
+	if len(s.stateObjectsPending) > 0 {
+		s.stateObjectsPending = make(map[common.Address]struct{})
+	}
 	// Commit objects to the trie, measuring the elapsed time
 	for addr := range s.stateObjectsDirty {
 		if obj := s.stateObjects[addr]; !obj.deleted {
@@ -812,6 +822,7 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 			if err := obj.CommitTrie(s.db); err != nil {
 				return common.Hash{}, err
 			}
+			s.updateStateObject(obj)
 		}
 	}
 	if len(s.stateObjectsDirty) > 0 {
@@ -822,6 +833,7 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 	if metrics.EnabledExpensive {
 		start = time.Now()
 	}
+	// TODO, use rlp.ListIterator instead, and compare the slices in-place
 	root, err := s.trie.Commit(func(leaf []byte, parent common.Hash) error {
 		var account Account
 		if err := rlp.DecodeBytes(leaf, &account); err != nil {
