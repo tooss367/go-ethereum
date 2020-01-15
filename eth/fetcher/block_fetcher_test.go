@@ -95,7 +95,11 @@ func newTester(light bool) *fetcherTester {
 		blocks:  map[common.Hash]*types.Block{genesis.Hash(): genesis},
 		drops:   make(map[string]bool),
 	}
+<<<<<<< HEAD
 	tester.fetcher = NewBlockFetcher(light, tester.getHeader, tester.getBlock, tester.verifyHeader, tester.broadcastBlock, tester.chainHeight, tester.insertHeaders, tester.insertChain, tester.dropPeer)
+=======
+	tester.fetcher = NewBlockFetcher(tester.hasBlock, tester.verifyHeader, tester.broadcastBlock, tester.chainHeight, tester.insertChain, tester.dropPeer)
+>>>>>>> 30b5a19474... eth/fetcher: don't enqueue known broadcasted blocks
 	tester.fetcher.Start()
 
 	return tester
@@ -115,6 +119,14 @@ func (f *fetcherTester) getBlock(hash common.Hash) *types.Block {
 	defer f.lock.RUnlock()
 
 	return f.blocks[hash]
+}
+
+// hasBlock checks if a block is present in the tester's block chain.
+func (f *fetcherTester) hasBlock(hash common.Hash) bool {
+	f.lock.RLock()
+	defer f.lock.RUnlock()
+	_, ok := f.blocks[hash]
+	return ok
 }
 
 // verifyHeader is a nop placeholder for the block header verification.
