@@ -64,7 +64,7 @@ type diffAccountIterator struct {
 	// is explicitly tracked since the referenced diff layer might go stale after
 	// the iterator was positioned and we don't want to fail accessing the old
 	// value as long as the iterator is not touched any more.
-	curAccount []byte
+	//curAccount []byte
 
 	layer *diffLayer    // Live layer to retrieve values from
 	keys  []common.Hash // Keys left in the layer to iterate
@@ -100,19 +100,19 @@ func (it *diffAccountIterator) Next() bool {
 	}
 	// Iterator seems to be still alive, retrieve and cache the live hash and
 	// account value, or fail now if layer became stale
-	it.layer.lock.RLock()
-	defer it.layer.lock.RUnlock()
-
-	if it.layer.stale {
+	//it.layer.lock.RLock()
+	//defer it.layer.lock.RUnlock()
+	//
+	if it.layer.Stale() {
 		it.fail, it.keys = ErrSnapshotStale, nil
 		return false
 	}
 	it.curHash = it.keys[0]
-	if blob, ok := it.layer.accountData[it.curHash]; !ok {
-		panic(fmt.Sprintf("iterator referenced non-existent account: %x", it.curHash))
-	} else {
-		it.curAccount = blob
-	}
+	//if blob, ok := it.layer.accountData[it.curHash]; !ok {
+	//	panic(fmt.Sprintf("iterator referenced non-existent account: %x", it.curHash))
+	//} else {
+	//	it.curAccount = blob
+	//}
 	// Values cached, shift the iterator and notify the user of success
 	it.keys = it.keys[1:]
 	return true
@@ -131,7 +131,16 @@ func (it *diffAccountIterator) Hash() common.Hash {
 
 // Account returns the RLP encoded slim account the iterator is currently at.
 func (it *diffAccountIterator) Account() []byte {
-	return it.curAccount
+	it.layer.lock.RLock()
+	blob, ok := it.layer.accountData[it.curHash]
+	if !ok {
+		panic(fmt.Sprintf("iterator referenced non-existent account: %x", it.curHash))
+	}
+	it.layer.lock.RUnlock()
+	if it.layer.Stale() {
+		it.fail, it.keys = ErrSnapshotStale, nil
+	}
+	return blob
 }
 
 // Release is a noop for diff account iterators as there are no held resources.

@@ -65,7 +65,8 @@ func (its weightedAccountIterators) Swap(i, j int) {
 type fastAccountIterator struct {
 	tree *Tree       // Snapshot tree to reinitialize stale sub-iterators with
 	root common.Hash // Root hash to reinitialize stale sub-iterators through
-
+	curAccount []byte
+	
 	iterators weightedAccountIterators
 	initiated bool
 	fail      error
@@ -160,9 +161,14 @@ func (fi *fastAccountIterator) Next() bool {
 		// Don't forward first time -- we had to 'Next' once in order to
 		// do the sorting already
 		fi.initiated = true
+		fi.curAccount = fi.iterators[0].it.Account()
 		return true
 	}
-	return fi.next(0)
+	if !fi.next(0) {
+		return false
+	}
+	fi.curAccount = fi.iterators[0].it.Account()
+	return fi.Error() == nil
 }
 
 // next handles the next operation internally and should be invoked when we know
@@ -259,7 +265,7 @@ func (fi *fastAccountIterator) Hash() common.Hash {
 
 // Account returns the current key
 func (fi *fastAccountIterator) Account() []byte {
-	return fi.iterators[0].it.Account()
+	return fi.curAccount
 }
 
 // Release iterates over all the remaining live layer iterators and releases each
