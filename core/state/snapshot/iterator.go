@@ -98,22 +98,13 @@ func (it *diffAccountIterator) Next() bool {
 	if len(it.keys) == 0 {
 		return false
 	}
-	// Iterator seems to be still alive, retrieve and cache the live hash and
-	// account value, or fail now if layer became stale
-	//it.layer.lock.RLock()
-	//defer it.layer.lock.RUnlock()
-	//
 	if it.layer.Stale() {
 		it.fail, it.keys = ErrSnapshotStale, nil
 		return false
 	}
+	// Iterator seems to be still alive, retrieve and cache the live hash
 	it.curHash = it.keys[0]
-	//if blob, ok := it.layer.accountData[it.curHash]; !ok {
-	//	panic(fmt.Sprintf("iterator referenced non-existent account: %x", it.curHash))
-	//} else {
-	//	it.curAccount = blob
-	//}
-	// Values cached, shift the iterator and notify the user of success
+	// key cached, shift the iterator and notify the user of success
 	it.keys = it.keys[1:]
 	return true
 }
@@ -130,6 +121,11 @@ func (it *diffAccountIterator) Hash() common.Hash {
 }
 
 // Account returns the RLP encoded slim account the iterator is currently at.
+// This method may _fail_, if the underlying layer has been flattened between
+// the call to Next and Acccount. That type of error will set it.Err.
+// This method assumes that flattening does not delete elements from
+// the accountdata mapping (writing nil into it is fine though), and will panic
+// if elements have been deleted.
 func (it *diffAccountIterator) Account() []byte {
 	it.layer.lock.RLock()
 	blob, ok := it.layer.accountData[it.curHash]

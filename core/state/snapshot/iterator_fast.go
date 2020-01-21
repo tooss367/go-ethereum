@@ -63,10 +63,10 @@ func (its weightedAccountIterators) Swap(i, j int) {
 // fastAccountIterator is a more optimized multi-layer iterator which maintains a
 // direct mapping of all iterators leading down to the bottom layer.
 type fastAccountIterator struct {
-	tree *Tree       // Snapshot tree to reinitialize stale sub-iterators with
-	root common.Hash // Root hash to reinitialize stale sub-iterators through
+	tree       *Tree       // Snapshot tree to reinitialize stale sub-iterators with
+	root       common.Hash // Root hash to reinitialize stale sub-iterators through
 	curAccount []byte
-	
+
 	iterators weightedAccountIterators
 	initiated bool
 	fail      error
@@ -162,12 +162,18 @@ func (fi *fastAccountIterator) Next() bool {
 		// do the sorting already
 		fi.initiated = true
 		fi.curAccount = fi.iterators[0].it.Account()
-		return true
+		if innerErr := fi.iterators[0].it.Error(); innerErr != nil {
+			fi.fail = innerErr
+		}
+		return fi.Error() == nil
 	}
 	if !fi.next(0) {
 		return false
 	}
 	fi.curAccount = fi.iterators[0].it.Account()
+	if innerErr := fi.iterators[0].it.Error(); innerErr != nil {
+		fi.fail = innerErr
+	}
 	return fi.Error() == nil
 }
 

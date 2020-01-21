@@ -399,10 +399,9 @@ func (dl *diffLayer) flatten() snapshot {
 
 	// Before actually writing all our data to the parent, first ensure that the
 	// parent hasn't been 'corrupted' by someone else already flattening into it
-	if 	atomic.SwapUint32(&parent.stale,1 ) != 0{
+	if atomic.SwapUint32(&parent.stale, 1) != 0 {
 		panic("parent diff layer is stale") // we've flattened into the same parent from two children, boo
 	}
-
 	// Overwrite all the updated accounts blindly, merge the sorted list
 	for hash, data := range dl.accountData {
 		parent.accountData[hash] = data
