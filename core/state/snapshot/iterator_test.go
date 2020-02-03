@@ -381,7 +381,7 @@ func TestIteratorSeek(t *testing.T) {
 
 // TestIteratorDeletions tests that the iterator behaves correct when there are
 // deleted accounts (where the Account() value is nil). The iterator
-// should not output any accounts or  nil-values for those cases
+// should not output any accounts or nil-values for those cases.
 func TestIteratorDeletions(t *testing.T) {
 	// Create an empty base layer and a snapshot tree out of it
 	base := &diskLayer{
