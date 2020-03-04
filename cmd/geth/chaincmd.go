@@ -620,8 +620,10 @@ func snapToHash(ctx *cli.Context) error {
 	if err := it.Error(); err != nil {
 		fmt.Printf("Iterator error: %v\n", it.Error())
 	}
-	fmt.Printf("Expected root:  %x\n", root)
-	fmt.Printf("Generated root: %x\n", generatedRoot)
+	if root != generatedRoot {
+		return fmt.Errorf("Wrong hash generated, expected %x, got %x", root, generatedRoot[:])
+	}
+	log.Info("Generation done", "root", generatedRoot)
 	return nil
 }
 
