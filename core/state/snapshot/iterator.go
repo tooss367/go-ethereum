@@ -150,7 +150,8 @@ type diskAccountIterator struct {
 func (dl *diskLayer) AccountIterator(seek common.Hash) AccountIterator {
 	return &diskAccountIterator{
 		layer: dl,
-		it:    dl.diskdb.NewIteratorWithPrefix(append(rawdb.SnapshotAccountPrefix, seek[:]...)),
+		//it:    dl.diskdb.NewIteratorWithPrefix(append(rawdb.SnapshotAccountPrefix, seek[:]...)),
+		it:    dl.diskdb.NewIteratorWithPrefix(rawdb.SnapshotAccountPrefix),
 	}
 }
 

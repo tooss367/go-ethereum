@@ -597,7 +597,7 @@ func snapToHash(ctx *cli.Context) error {
 	node, _ := makeConfigNode(ctx)
 	chain, chainDb := utils.MakeChain(ctx, node)
 
-	defer func(){
+	defer func() {
 		node.Close()
 		chain.Stop()
 		chainDb.Close()
@@ -617,7 +617,9 @@ func snapToHash(ctx *cli.Context) error {
 		return fmt.Errorf("Could not create iterator for root %x: %v", root, err)
 	}
 	generatedRoot := snapshot.GenerateTrieRoot(it)
-
+	if err := it.Error(); err != nil {
+		fmt.Printf("Iterator error: %v\n", it.Error())
+	}
 	fmt.Printf("Expected root:  %x\n", root)
 	fmt.Printf("Generated root: %x\n", generatedRoot)
 	return nil
