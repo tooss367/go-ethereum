@@ -17,10 +17,16 @@
 package snapshot
 
 import (
+	"bytes"
 	"encoding/binary"
+	"fmt"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb/memorydb"
 	"github.com/ethereum/go-ethereum/trie"
+	trie2 "github.com/ledgerwatch/turbo-geth/trie"
+	"github.com/ledgerwatch/turbo-geth/trie/rlphacks"
 	"math/rand"
+	"sort"
 	"testing"
 
 	"github.com/VictoriaMetrics/fastcache"
@@ -250,5 +256,97 @@ func TestStackVsStandard(t *testing.T) {
 	}
 	if got, exp := stackT.Hash(), stdT.Hash(); got != exp {
 		t.Errorf("Hash mismatch, got %x, exp %x", got, exp)
+	}
+}
+
+func TestV2HashBuilding(t *testing.T) {
+	var keys []string
+	for b := uint32(0); b < 100000; b++ {
+		var preimage [4]byte
+		binary.BigEndian.PutUint32(preimage[:], b)
+		key := crypto.Keccak256(preimage[:])[:8]
+		keys = append(keys, string(key))
+	}
+	sort.Strings(keys)
+	for i, key := range keys {
+		if i > 0 && keys[i-1] == key {
+			fmt.Printf("Duplicate!\n")
+		}
+	}
+
+	var (
+		got common.Hash
+		exp common.Hash
+	)
+
+	tr, _ := trie.New(common.Hash{}, trie.NewDatabase(memorydb.New()))
+	valueLong := []byte("VALUE123985903485903489043859043859043859048590485904385903485940385439058934058439058439058439058940385904358904385438809348908345")
+	valueShort := []byte("VAL")
+	for i, key := range keys {
+		if i%2 == 0 {
+			tr.Update([]byte(key), valueLong)
+		} else {
+			tr.Update([]byte(key), valueShort)
+		}
+	}
+	exp = common.Hash(tr.Hash())
+
+	hb := trie2.NewHashBuilder(false)
+	var succ bytes.Buffer
+	var curr bytes.Buffer
+	var valueTape bytes.Buffer
+	var groups []uint16
+	for i, key := range keys {
+		curr.Reset()
+		curr.Write(succ.Bytes())
+		succ.Reset()
+		keyBytes := []byte(key)
+		for _, b := range keyBytes {
+			succ.WriteByte(b / 16)
+			succ.WriteByte(b % 16)
+		}
+		succ.WriteByte(16)
+		if curr.Len() > 0 {
+			var err error
+			groups, err = trie2.GenStructStep(func(_ []byte) bool {
+				return true
+			},
+				curr.Bytes(),
+				succ.Bytes(),
+				hb,
+				&trie2.GenStructStepLeafData{
+					rlphacks.RlpSerializableBytes(valueTape.Bytes())},
+				groups, false)
+			if err != nil {
+				t.Errorf("Could not execute step of structGen algorithm: %v", err)
+			}
+		}
+		valueTape.Reset()
+		if i%2 == 0 {
+			valueTape.Write(valueLong)
+		} else {
+			valueTape.Write(valueShort)
+		}
+	}
+	curr.Reset()
+	curr.Write(succ.Bytes())
+	succ.Reset()
+	if _, err := trie2.GenStructStep(func(_ []byte) bool { return true },
+		curr.Bytes(),
+		succ.Bytes(),
+		hb,
+		&trie2.GenStructStepLeafData{rlphacks.RlpSerializableBytes(valueTape.Bytes())},
+		groups,
+		false); err != nil {
+		t.Errorf("Could not execute step of structGen algorithm: %v", err)
+	}
+	if builtHash, err := hb.RootHash(); err == nil {
+		got = common.Hash(builtHash)
+	} else {
+		t.Errorf("error: %v", err)
+	}
+
+	if got != exp {
+		t.Errorf("Expected hash %x, got %x", exp, got)
 	}
 }
