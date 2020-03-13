@@ -18,6 +18,7 @@ package runtime
 
 import (
 	"math/big"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -347,6 +348,7 @@ func BenchmarkSimpleLoop(b *testing.B) {
 }
 
 type stepCounter struct {
+	inner *vm.JSONLogger
 	steps int
 }
 
@@ -354,12 +356,14 @@ func (s *stepCounter) CaptureStart(from common.Address, to common.Address, creat
 	return nil
 }
 
-func (s *stepCounter) CaptureState(env *vm.EVM, pc uint64, op vm.OpCode, gas, cost uint64, memory *vm.Memory, stack *vm.Stack, contract *vm.Contract, depth int, err error) error {
+func (s *stepCounter) CaptureState(env *vm.EVM, pc uint64, op vm.OpCode, gas, cost uint64, memory *vm.Memory, stack *vm.Stack, rStack *vm.ReturnStack, contract *vm.Contract, depth int, err error) error {
 	s.steps++
+	// Enable this for more output
+	//s.inner.CaptureState(env, pc, op, gas, cost, memory, stack, rStack, contract, depth, err)
 	return nil
 }
 
-func (s *stepCounter) CaptureFault(env *vm.EVM, pc uint64, op vm.OpCode, gas, cost uint64, memory *vm.Memory, stack *vm.Stack, contract *vm.Contract, depth int, err error) error {
+func (s *stepCounter) CaptureFault(env *vm.EVM, pc uint64, op vm.OpCode, gas, cost uint64, memory *vm.Memory, stack *vm.Stack, rStack *vm.ReturnStack, contract *vm.Contract, depth int, err error) error {
 	return nil
 }
 
@@ -382,7 +386,7 @@ func TestJumpSub1024Limit(t *testing.T) {
 		byte(vm.PUSH1), 0,
 		byte(vm.JUMPSUB),
 	})
-	tracer := stepCounter{}
+	tracer := stepCounter{inner: vm.NewJSONLogger(nil, os.Stdout)}
 	// Enable 2315
 	_, _, err := Call(address, nil, &Config{State: state,
 		GasLimit:    20000,
