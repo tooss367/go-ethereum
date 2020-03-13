@@ -675,6 +675,11 @@ func opBeginSub(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) (
 }
 
 func opJumpSub(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	// TODO(@holiman, @gcolvin) - verify that this is as expected. The EIP says to prepopulate the
+	// returnstack with one element pointing outside the code size. Should this check be for 1023, 1022 or 1024?
+	if len(callContext.rstack.data) > 1023 {
+		return nil, errors.New("evm: return stack limit reached")
+	}
 	pos := stack.pop().Uint64()
 	if !contract.validJumpSubdest(pos) {
 		return nil, errInvalidJump
@@ -682,7 +687,6 @@ func opJumpSub(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([
 	callContext.rstack.push(*pc)
 	*pc = pos
 
-	// TODO(gcolvin) is this necessary?
 	// interpreter.intPool.put(pos)
 	return nil, nil
 }

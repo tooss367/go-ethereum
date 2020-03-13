@@ -20,6 +20,7 @@ import (
 	"math/big"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -342,5 +343,92 @@ func BenchmarkSimpleLoop(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		Execute(code, nil, nil)
+	}
+}
+
+type stepCounter struct {
+	steps int
+}
+
+func (s *stepCounter) CaptureStart(from common.Address, to common.Address, create bool, input []byte, gas uint64, value *big.Int) error {
+	return nil
+}
+
+func (s *stepCounter) CaptureState(env *vm.EVM, pc uint64, op vm.OpCode, gas, cost uint64, memory *vm.Memory, stack *vm.Stack, contract *vm.Contract, depth int, err error) error {
+	s.steps++
+	return nil
+}
+
+func (s *stepCounter) CaptureFault(env *vm.EVM, pc uint64, op vm.OpCode, gas, cost uint64, memory *vm.Memory, stack *vm.Stack, contract *vm.Contract, depth int, err error) error {
+	return nil
+}
+
+func (s *stepCounter) CaptureEnd(output []byte, gasUsed uint64, t time.Duration, err error) error {
+	return nil
+}
+
+func TestJumpSub1024Limit(t *testing.T) {
+	state, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()))
+	address := common.HexToAddress("0x0a")
+	// Code is
+	// 0 beginsub
+	// 1 push 0
+	// 3 jumpsub
+	//
+	// The code recursively calls itself. It should error when the returns-stack
+	// grows above 1023
+	state.SetCode(address, []byte{
+		byte(vm.BEGINSUB),
+		byte(vm.PUSH1), 0,
+		byte(vm.JUMPSUB),
+	})
+	tracer := stepCounter{}
+	// Enable 2315
+	_, _, err := Call(address, nil, &Config{State: state,
+		GasLimit:    20000,
+		ChainConfig: params.AllEthashProtocolChanges,
+		EVMConfig: vm.Config{
+			ExtraEips: []int{2315},
+			Debug:     true,
+			//Tracer:    vm.NewJSONLogger(nil, os.Stdout),
+			Tracer: &tracer,
+		}})
+	exp := "evm: return stack limit reached"
+	if err.Error() != exp {
+		t.Fatalf("expected %v, got %v", exp, err)
+	}
+	if exp, got := 3072, tracer.steps; exp != got {
+		t.Fatalf("expected %d steps, got %d", exp, got)
+	}
+}
+
+func TestReturnSubShallow(t *testing.T) {
+	state, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()))
+	address := common.HexToAddress("0x0a")
+	// The code does returnsub without having anything on the returnstack.
+	// It should not panic, but just fail after one step
+	state.SetCode(address, []byte{
+		byte(vm.RETURNSUB),
+		byte(vm.PC),
+		byte(vm.PC),
+	})
+	tracer := stepCounter{}
+
+	// Enable 2315
+	_, _, err := Call(address, nil, &Config{State: state,
+		GasLimit:    10000,
+		ChainConfig: params.AllEthashProtocolChanges,
+		EVMConfig: vm.Config{
+			ExtraEips: []int{2315},
+			Debug:     true,
+			Tracer:    &tracer,
+		}})
+
+	exp := "evm: invalid jump destination"
+	if err.Error() != exp {
+		t.Fatalf("expected %v, got %v", exp, err)
+	}
+	if exp, got := 1, tracer.steps; exp != got {
+		t.Fatalf("expected %d steps, got %d", exp, got)
 	}
 }
