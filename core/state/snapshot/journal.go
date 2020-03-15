@@ -444,3 +444,52 @@ func (dl *diffLayer) LegacyJournal(buffer *bytes.Buffer) (common.Hash, error) {
 	log.Debug("Legacy journalled disk layer", "root", dl.root, "parent", dl.parent.Root())
 	return base, nil
 }
+
+// ExportSnapshot is a hack to print out the contents of the snapshot. A more
+// proper implementation should use json marshalling instead.
+func ExportSnapshot(diskdb ethdb.KeyValueStore) error {
+	baseRoot := rawdb.ReadSnapshotRoot(diskdb)
+	if baseRoot == (common.Hash{}) {
+		return errors.New("missing or corrupted snapshot")
+	}
+	base := &diskLayer{
+		diskdb: diskdb,
+		cache:  fastcache.New(1024 * 1024),
+	}
+	// Retrieve the journal, it must exist since even for 0 layer it stores whether
+	// we've already generated the snapshot or are in progress only
+	journal := rawdb.ReadSnapshotJournal(diskdb)
+	if len(journal) == 0 {
+		return errors.New("missing or corrupted snapshot journal")
+	}
+	r := rlp.NewStream(bytes.NewReader(journal), 0)
+
+	// Read the snapshot generation progress for the disk layer
+	var generator journalGenerator
+	if err := r.Decode(&generator); err != nil {
+		return fmt.Errorf("failed to load snapshot progress marker: %v", err)
+	}
+	// Load all the snapshot diffs from the journal
+	snapshot, err := loadDiffLayer(base, r)
+	if err != nil {
+		return err
+	}
+
+	for {
+		diff, ok := snapshot.(*diffLayer)
+		if !ok {
+			break
+		}
+		fmt.Printf("root: %x\n", diff.root)
+		fmt.Println(" accounts:")
+		for ac, data := range diff.accountData {
+			fmt.Printf("	account %x : %x\n", ac, data)
+		}
+		fmt.Println(" destructs:")
+		for h, _ := range diff.destructSet {
+			fmt.Printf("	destruct: %x\n", h)
+		}
+		snapshot = diff.parent
+	}
+	return nil
+}
