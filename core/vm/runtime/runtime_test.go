@@ -441,7 +441,7 @@ func TestReturnCases(t *testing.T) {
 	cfg := &Config{
 		EVMConfig: vm.Config{
 			Debug:     true,
-			Tracer:    vm.NewTextLogger(nil, os.Stdout),
+			Tracer:    vm.NewMarkdownLogger(nil, os.Stdout),
 			ExtraEips: []int{2315},
 		},
 	}

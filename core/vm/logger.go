@@ -269,78 +269,79 @@ func WriteLogs(writer io.Writer, logs []*types.Log) {
 	}
 }
 
-type textLogger struct {
+type mdLogger struct {
 	out io.Writer
 	cfg *LogConfig
 }
 
-// NewTextLogger creates a logger which outputs information in a format adapted
-// for human readability
-func NewTextLogger(cfg *LogConfig, writer io.Writer) *textLogger {
-	l := &textLogger{writer, cfg}
+// NewMarkdownLogger creates a logger which outputs information in a format adapted
+// for human readability, and is also a valid markdown table
+func NewMarkdownLogger(cfg *LogConfig, writer io.Writer) *mdLogger {
+	l := &mdLogger{writer, cfg}
 	if l.cfg == nil {
 		l.cfg = &LogConfig{}
 	}
 	return l
 }
 
-func (t *textLogger) CaptureStart(from common.Address, to common.Address, create bool, input []byte, gas uint64, value *big.Int) error {
+func (t *mdLogger) CaptureStart(from common.Address, to common.Address, create bool, input []byte, gas uint64, value *big.Int) error {
 	if !create {
-		d := fmt.Sprintf("Origin %v -> %v\nData: 0x%v\nGas: %d\nValue %v\n",
-			from.String(),
-			to.String(),
-			input,
-			gas,
-			value)
-		t.out.Write([]byte(d))
+		fmt.Fprintf(t.out, "From: `%v`\nTo: `%v`\nData: `0x%x`\nGas: `%d`\nValue `%v` wei\n",
+			from.String(), to.String(),
+			input, gas, value)
 	} else {
-		d := fmt.Sprintf("Origin %v -create-> %v\nData: 0x%v\nGas: %d\nValue %v\n",
-			from.String(),
-			to.String(),
-			input,
-			gas,
-			value)
-		t.out.Write([]byte(d))
+		fmt.Fprintf(t.out, "Froms: `%v`\nCreate at: `%v`\nData: `0x%x`\nGas: `%d`\nValue `%v` wei\n",
+			from.String(), to.String(),
+			input, gas, value)
 	}
-	t.out.Write([]byte("|  Pc   |      Op     | Cost |   Stack  |  RStack  |\n"))
-	t.out.Write([]byte("|---------------------------------------------------|\n"))
+
+	fmt.Fprintf(t.out, `
+|  Pc   |      Op     | Cost |   Stack   |   RStack  |
+|-------|-------------|------|-----------|-----------|
+`)
 	return nil
 }
 
-func (t *textLogger) CaptureState(env *EVM, pc uint64, op OpCode, gas, cost uint64, memory *Memory, stack *Stack, rStack *ReturnStack, contract *Contract, depth int, err error) error {
-	t.out.Write([]byte(fmt.Sprintf("| %4d  | %10v  |  %3d |", pc, op, cost)))
+func (t *mdLogger) CaptureState(env *EVM, pc uint64, op OpCode, gas, cost uint64, memory *Memory, stack *Stack, rStack *ReturnStack, contract *Contract, depth int, err error) error {
+	fmt.Fprintf(t.out, "| %4d  | %10v  |  %3d |", pc, op, cost)
 
 	if !t.cfg.DisableStack { // format stack
-		var stStr []string
+		var a []string
 		for _, elem := range stack.data {
-			stStr = append(stStr, fmt.Sprintf("%d", elem))
+			a = append(a, fmt.Sprintf("%d", elem))
 		}
-		t.out.Write([]byte(fmt.Sprintf(" [%v] |", strings.Join(stStr, ","))))
+		b := fmt.Sprintf("[%v]", strings.Join(a, ","))
+		fmt.Fprintf(t.out, "%10v |", b)
 	}
 	if !t.cfg.DisableStack { // format return stack
-		var stStr []string
+		var a []string
 		for _, elem := range rStack.data {
-			stStr = append(stStr, fmt.Sprintf("%2d", elem))
+			a = append(a, fmt.Sprintf("%2d", elem))
 		}
-		t.out.Write([]byte(fmt.Sprintf(" [%v] |", strings.Join(stStr, ","))))
+		b := fmt.Sprintf("[%v]", strings.Join(a, ","))
+		fmt.Fprintf(t.out, "%10v |", b)
 	}
-	t.out.Write([]byte("\n"))
+	fmt.Fprintln(t.out, "")
 	if err != nil {
-		t.out.Write([]byte(fmt.Sprintf("Error: %v\n", err)))
+		fmt.Fprintf(t.out, "Error: %v\n", err)
 	}
 	return nil
 }
 
-func (t *textLogger) CaptureFault(env *EVM, pc uint64, op OpCode, gas, cost uint64, memory *Memory, stack *Stack, rStack *ReturnStack, contract *Contract, depth int, err error) error {
-	t.out.Write([]byte(fmt.Sprintf("| %4d  | %10v  |  %3d |", pc, op, cost)))
-	t.out.Write([]byte("\n"))
+func (t *mdLogger) CaptureFault(env *EVM, pc uint64, op OpCode, gas, cost uint64, memory *Memory, stack *Stack, rStack *ReturnStack, contract *Contract, depth int, err error) error {
+	fmt.Fprintf(t.out, "| %4d  | %10v  |  %3d |\n", pc, op, cost)
 	if err != nil {
-		t.out.Write([]byte(fmt.Sprintf("Error: %v\n", err)))
+		fmt.Fprintf(t.out, "Error: %v\n", err)
 	}
 	return nil
 }
 
-func (t *textLogger) CaptureEnd(output []byte, gasUsed uint64, tm time.Duration, err error) error {
-	t.out.Write([]byte("|---------------------------------------------------|\n"))
+func (t *mdLogger) CaptureEnd(output []byte, gasUsed uint64, tm time.Duration, err error) error {
+	fmt.Fprintf(t.out, `
+Output: 0x%x
+Consumed gas: %d
+Error: %v
+`,
+		output, gasUsed, err)
 	return nil
 }
