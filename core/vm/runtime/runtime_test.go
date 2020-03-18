@@ -436,3 +436,47 @@ func TestReturnSubShallow(t *testing.T) {
 		t.Fatalf("expected %d steps, got %d", exp, got)
 	}
 }
+
+func TestReturnCases(t *testing.T) {
+	cfg := &Config{
+		EVMConfig: vm.Config{
+			Debug:     true,
+			Tracer:    vm.NewTextLogger(nil, os.Stdout),
+			ExtraEips: []int{2315},
+		},
+	}
+
+	Execute([]byte{
+		byte(vm.RETURNSUB),
+		byte(vm.PC),
+		byte(vm.PC),
+	}, nil, cfg)
+
+	/** From the EIP:
+	                      data  return
+	offset step opcode    stack stack
+	0      0    PUSH1 3   []    []
+	1      1    JUMPSUB   [3]   [1]
+	2      8    STOP      []    []
+	3      2    BEGINSUB  []    [1]
+	4      3    PUSH1 7   []    [1]
+	5      4    JUMPSUB   [7]   [1,5]
+	6      7    RETURNSUB []    [1]
+	7      5    BEGINSUB  []    [1]
+	8      6    RETURNSUB []    [1]
+	The above code should terminate after 8 steps with an empty stack.
+	*/
+
+	Execute([]byte{
+		byte(vm.PUSH1), 0x4,
+		byte(vm.JUMPSUB),
+		byte(vm.STOP),
+		byte(vm.BEGINSUB),
+		byte(vm.PUSH1), 0x9,
+		byte(vm.JUMPSUB),
+		byte(vm.RETURNSUB),
+		byte(vm.BEGINSUB),
+		byte(vm.RETURNSUB),
+	}, nil, cfg)
+
+}

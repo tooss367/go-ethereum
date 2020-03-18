@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -266,4 +267,80 @@ func WriteLogs(writer io.Writer, logs []*types.Log) {
 		fmt.Fprint(writer, hex.Dump(log.Data))
 		fmt.Fprintln(writer)
 	}
+}
+
+type textLogger struct {
+	out io.Writer
+	cfg *LogConfig
+}
+
+// NewTextLogger creates a logger which outputs information in a format adapted
+// for human readability
+func NewTextLogger(cfg *LogConfig, writer io.Writer) *textLogger {
+	l := &textLogger{writer, cfg}
+	if l.cfg == nil {
+		l.cfg = &LogConfig{}
+	}
+	return l
+}
+
+func (t *textLogger) CaptureStart(from common.Address, to common.Address, create bool, input []byte, gas uint64, value *big.Int) error {
+	if !create {
+		d := fmt.Sprintf("Origin %v -> %v\nData: 0x%v\nGas: %d\nValue %v\n",
+			from.String(),
+			to.String(),
+			input,
+			gas,
+			value)
+		t.out.Write([]byte(d))
+	} else {
+		d := fmt.Sprintf("Origin %v -create-> %v\nData: 0x%v\nGas: %d\nValue %v\n",
+			from.String(),
+			to.String(),
+			input,
+			gas,
+			value)
+		t.out.Write([]byte(d))
+	}
+	t.out.Write([]byte("|  Pc   |      Op     | Cost |   Stack  |  RStack  |\n"))
+	t.out.Write([]byte("|---------------------------------------------------|\n"))
+	return nil
+}
+
+func (t *textLogger) CaptureState(env *EVM, pc uint64, op OpCode, gas, cost uint64, memory *Memory, stack *Stack, rStack *ReturnStack, contract *Contract, depth int, err error) error {
+	t.out.Write([]byte(fmt.Sprintf("| %4d  | %10v  |  %3d |", pc, op, cost)))
+
+	if !t.cfg.DisableStack { // format stack
+		var stStr []string
+		for _, elem := range stack.data {
+			stStr = append(stStr, fmt.Sprintf("%d", elem))
+		}
+		t.out.Write([]byte(fmt.Sprintf(" [%v] |", strings.Join(stStr, ","))))
+	}
+	if !t.cfg.DisableStack { // format return stack
+		var stStr []string
+		for _, elem := range rStack.data {
+			stStr = append(stStr, fmt.Sprintf("%2d", elem))
+		}
+		t.out.Write([]byte(fmt.Sprintf(" [%v] |", strings.Join(stStr, ","))))
+	}
+	t.out.Write([]byte("\n"))
+	if err != nil {
+		t.out.Write([]byte(fmt.Sprintf("Error: %v\n", err)))
+	}
+	return nil
+}
+
+func (t *textLogger) CaptureFault(env *EVM, pc uint64, op OpCode, gas, cost uint64, memory *Memory, stack *Stack, rStack *ReturnStack, contract *Contract, depth int, err error) error {
+	t.out.Write([]byte(fmt.Sprintf("| %4d  | %10v  |  %3d |", pc, op, cost)))
+	t.out.Write([]byte("\n"))
+	if err != nil {
+		t.out.Write([]byte(fmt.Sprintf("Error: %v\n", err)))
+	}
+	return nil
+}
+
+func (t *textLogger) CaptureEnd(output []byte, gasUsed uint64, tm time.Duration, err error) error {
+	t.out.Write([]byte("|---------------------------------------------------|\n"))
+	return nil
 }
