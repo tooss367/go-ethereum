@@ -299,10 +299,20 @@ func TestSlimToFullHash(t *testing.T) {
 	rand.Seed(1881)
 	var slimAccounts [][]byte
 	for i := 0; i < 10000; i++ {
+		var (
+			cHash = emptyCode
+			sHash = emptyRoot
+		)
+		if rand.Intn(2) == 0{
+			cHash = randomHash()
+		}
+		if rand.Intn(2) == 0{
+			sHash = randomHash()
+		}
 		slimData := AccountRLP(rand.Uint64(),
 			big.NewInt(0).SetUint64(rand.Uint64()),
-			randomHash(),
-			randomHash().Bytes())
+			sHash,
+			cHash.Bytes())
 		slimAccounts = append(slimAccounts, slimData)
 	}
 	hasher := sha3.NewLegacyKeccak256().(crypto.KeccakState)
@@ -311,6 +321,7 @@ func TestSlimToFullHash(t *testing.T) {
 		expanded := SlimToFull(slimData)
 		exp := crypto.Keccak256Hash(expanded)
 		got := SlimToHash(slimData, hasher)
+		SlimToHashOld(slimData, hasher)
 		if got != exp {
 			t.Fatalf("got %x exp %x \ndata: %x", got, exp, slimData)
 		}
@@ -321,10 +332,20 @@ func BenchmarkSlimToFullHash(b *testing.B) {
 	rand.Seed(1881)
 	var slimAccounts [][]byte
 	for i := 0; i < 10000; i++ {
+		var (
+			cHash = emptyCode
+			sHash = emptyRoot
+		)
+		if rand.Intn(2) == 0{
+			cHash = randomHash()
+		}
+		if rand.Intn(2) == 0{
+			sHash = randomHash()
+		}
 		slimData := AccountRLP(rand.Uint64(),
 			big.NewInt(0).SetUint64(rand.Uint64()),
-			randomHash(),
-			randomHash().Bytes())
+			sHash,
+			cHash.Bytes())
 		slimAccounts = append(slimAccounts, slimData)
 	}
 	b.ResetTimer()

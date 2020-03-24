@@ -82,41 +82,89 @@ type conversionAccount struct {
 }
 
 type converter struct {
-	tmpAcc *conversionAccount
-	sha3   crypto.KeccakState
-	stream rlp.Stream
+	buf  []byte
+	sha3 crypto.KeccakState
 }
 
 func newConverter() *converter {
 	return &converter{
-		tmpAcc: &conversionAccount{},
-		sha3:   sha3.NewLegacyKeccak256().(crypto.KeccakState),
+		buf:  make([]byte, 200),
+		sha3: sha3.NewLegacyKeccak256().(crypto.KeccakState),
 	}
 }
 
 func (c *converter) SlimToHash(data []byte) common.Hash {
 	var (
 		result common.Hash
-		tmp    = c.tmpAcc
 		sha3   = c.sha3
 	)
-	c.stream.Reset(bytes.NewReader(data), 0)
-	c.stream.Decode(c.tmpAcc)
-	if len(tmp.Root) == 0 {
-		tmp.Root = emptyRoot[:]
+	it, _ := rlp.NewListIterator(data)
+	// The data is nonce, followed by three byte-arrays.
+	it.Next() // nonce
+	nonce := it.Value()
+	it.Next() // balance
+	bal := it.Value()
+	it.Next() // storage root
+	root := it.Value()
+	if len(root) < 10 {
+		root = emptyRootRlp
 	}
-	if len(tmp.CodeHash) == 0 {
-		tmp.CodeHash = emptyCode[:]
+	it.Next() // codehash
+	cHash := it.Value()
+	if len(cHash) < 10 {
+		cHash = emptyCodeRlp
 	}
+	l := len(nonce) + len(bal) + len(root) + len(cHash)
+	c.buf = c.buf[:0]
+	buf := c.buf
+	buf = append(buf, 0xf8, byte(l))
+	buf = append(buf, nonce...)
+	buf = append(buf, bal...)
+	buf = append(buf, root...)
+	buf = append(buf, cHash...)
 	sha3.Reset()
-	_ = rlp.Encode(sha3, tmp)
+	sha3.Write(buf)
 	sha3.Read(result[:])
 	return result
 }
 
+var emptyRootRlp = common.Hex2Bytes("a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+var emptyCodeRlp = common.Hex2Bytes("a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
+
 // SlimToHash produces a hash of a main account trie, where the input is the
 // 'slim' version
 func SlimToHash(data []byte, sha3 crypto.KeccakState) common.Hash {
+	it, _ := rlp.NewListIterator(data)
+	// The data is nonce, followed by three byte-arrays.
+	it.Next() // nonce
+	nonce := it.Value()
+	it.Next() // balance
+	bal := it.Value()
+	it.Next() // storage root
+	root := it.Value()
+	if len(root) < 10 {
+		root = emptyRootRlp
+	}
+	it.Next() // codehash
+	cHash := it.Value()
+	if len(cHash) < 10 {
+		cHash = emptyCodeRlp
+	}
+	l := len(nonce) + len(bal) + len(root) + len(cHash)
+	buf := make([]byte, 0, l+2)
+	buf = append(buf, 0xf8, byte(l))
+	buf = append(buf, nonce...)
+	buf = append(buf, bal...)
+	buf = append(buf, root...)
+	buf = append(buf, cHash...)
+	sha3.Reset()
+	sha3.Write(buf)
+	var result common.Hash
+	sha3.Read(result[:])
+	return result
+}
+
+func SlimToHashOld(data []byte, sha3 crypto.KeccakState) common.Hash {
 	tmp := &conversionAccount{}
 	var result common.Hash
 	rlp.DecodeBytes(data, tmp)
