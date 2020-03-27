@@ -191,7 +191,6 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		res     []byte // result of the opcode execution function
 	)
 	contract.Input = input
-	returns.push(uint64(len(contract.Code))) // returnsub without jumpsub stops
 
 	// Reclaim the stack as an int pool when the execution stops
 	defer func() { in.intPool.put(stack.data...) }()

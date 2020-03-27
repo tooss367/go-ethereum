@@ -17,6 +17,7 @@
 package runtime
 
 import (
+	"fmt"
 	"math/big"
 	"os"
 	"strings"
@@ -428,7 +429,7 @@ func TestReturnSubShallow(t *testing.T) {
 			Tracer:    &tracer,
 		}})
 
-	exp := "evm: invalid jump destination"
+	exp := "evm: invalid retsub"
 	if err.Error() != exp {
 		t.Fatalf("expected %v, got %v", exp, err)
 	}
@@ -445,28 +446,14 @@ func TestReturnCases(t *testing.T) {
 			ExtraEips: []int{2315},
 		},
 	}
-
+	// This should fail at first opcode
 	Execute([]byte{
 		byte(vm.RETURNSUB),
 		byte(vm.PC),
 		byte(vm.PC),
 	}, nil, cfg)
 
-	/** From the EIP:
-	                      data  return
-	offset step opcode    stack stack
-	0      0    PUSH1 3   []    []
-	1      1    JUMPSUB   [3]   [1]
-	2      8    STOP      []    []
-	3      2    BEGINSUB  []    [1]
-	4      3    PUSH1 7   []    [1]
-	5      4    JUMPSUB   [7]   [1,5]
-	6      7    RETURNSUB []    [1]
-	7      5    BEGINSUB  []    [1]
-	8      6    RETURNSUB []    [1]
-	The above code should terminate after 8 steps with an empty stack.
-	*/
-
+	// This should complete
 	Execute([]byte{
 		byte(vm.PUSH1), 0x4,
 		byte(vm.JUMPSUB),
@@ -479,4 +466,52 @@ func TestReturnCases(t *testing.T) {
 		byte(vm.RETURNSUB),
 	}, nil, cfg)
 
+}
+
+// TestUint64JumpsubCases tests that jumpsub destination is not cropped
+// to uint64
+func TestUint64JumpsubCases(t *testing.T) {
+	cfg := &Config{
+		EVMConfig: vm.Config{
+			Debug:     true,
+			Tracer:    vm.NewMarkdownLogger(nil, os.Stdout),
+			ExtraEips: []int{2315},
+		},
+	}
+	prettyPrint := func(comment string, code []byte) {
+		fmt.Printf("%v\nBytecode: `0x%x`\n",
+			comment,
+			code)
+		Execute(code, nil, cfg)
+	}
+	{
+		code := []byte{
+			byte(vm.PUSH9), 0x00, 0x00, 0x00, 0x00, 0x0, 0x00, 0x00, 0x00, (4 + 8),
+			byte(vm.JUMPSUB),
+			byte(vm.STOP),
+			byte(vm.BEGINSUB),
+			byte(vm.PUSH1), 8 + 9,
+			byte(vm.JUMPSUB),
+			byte(vm.RETURNSUB),
+			byte(vm.BEGINSUB),
+			byte(vm.RETURNSUB),
+		}
+		prettyPrint("This should be fine", code)
+	}
+	// TODO(@holiman) move this test into an actual test, which not only prints
+	// out the trace.
+	{
+		code := []byte{
+			byte(vm.PUSH9), 0x01, 0x00, 0x00, 0x00, 0x0, 0x00, 0x00, 0x00, (4 + 8),
+			byte(vm.JUMPSUB),
+			byte(vm.STOP),
+			byte(vm.BEGINSUB),
+			byte(vm.PUSH1), 8 + 9,
+			byte(vm.JUMPSUB),
+			byte(vm.RETURNSUB),
+			byte(vm.BEGINSUB),
+			byte(vm.RETURNSUB),
+		}
+		prettyPrint("This should fail", code)
+	}
 }

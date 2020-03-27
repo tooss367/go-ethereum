@@ -35,6 +35,8 @@ var (
 	errExecutionReverted     = errors.New("evm: execution reverted")
 	errMaxCodeSizeExceeded   = errors.New("evm: max code size exceeded")
 	errInvalidJump           = errors.New("evm: invalid jump destination")
+	errInvalidRetsub         = errors.New("evm: invalid retsub")
+	errReturnStackExceeded   = errors.New("evm: return stack limit reached")
 )
 
 func opAdd(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
@@ -678,25 +680,30 @@ func opJumpSub(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([
 	// TODO(@holiman, @gcolvin) - verify that this is as expected. The EIP says to prepopulate the
 	// returnstack with one element pointing outside the code size. Should this check be for 1023, 1022 or 1024?
 	if len(callContext.rstack.data) > 1023 {
-		return nil, errors.New("evm: return stack limit reached")
+		return nil, errReturnStackExceeded
 	}
-	pos := stack.pop().Uint64()
-	if !contract.validJumpSubdest(pos) {
+	pos := stack.pop()
+	if !pos.IsUint64() {
+		return nil, errInvalidJump
+	}
+	posU64 := pos.Uint64()
+	if !contract.validJumpSubdest(posU64) {
 		return nil, errInvalidJump
 	}
 	callContext.rstack.push(*pc)
-	*pc = pos
-
-	// interpreter.intPool.put(pos)
+	*pc = posU64
+	interpreter.intPool.put(pos)
 	return nil, nil
 }
 
 func opReturnSub(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
-	pos := callContext.rstack.pop()
-	if !contract.validReturndest(pos) {
-		return nil, errInvalidJump
+	if len(callContext.rstack.data) == 0 {
+		return nil, errInvalidRetsub
 	}
-	*pc = pos
+	// Other than the check that the return stack is not empty, there is no
+	// need to validate the pc from 'returns', since we only ever push valid
+	//values onto it via jumpsub.
+	*pc = returns.pop()
 	return nil, nil
 }
 

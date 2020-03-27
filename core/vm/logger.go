@@ -329,10 +329,9 @@ func (t *mdLogger) CaptureState(env *EVM, pc uint64, op OpCode, gas, cost uint64
 }
 
 func (t *mdLogger) CaptureFault(env *EVM, pc uint64, op OpCode, gas, cost uint64, memory *Memory, stack *Stack, rStack *ReturnStack, contract *Contract, depth int, err error) error {
-	fmt.Fprintf(t.out, "| %4d  | %10v  |  %3d |\n", pc, op, cost)
-	if err != nil {
-		fmt.Fprintf(t.out, "Error: %v\n", err)
-	}
+
+	fmt.Fprintf(t.out, "\nError: at pc=%d, op=%v: %v\n", pc, op, err)
+
 	return nil
 }
 

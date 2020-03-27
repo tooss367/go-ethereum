@@ -108,20 +108,6 @@ func (c *Contract) validJumpSubdest(udest uint64) bool {
 	return c.isCode(udest)
 }
 
-func (c *Contract) validReturndest(udest uint64) bool {
-	// PC cannot go beyond len(code) and certainly can't be bigger than 63 bits.
-	// Don't bother checking for JUMPSUB in that case.
-	if int64(udest) < 0 || udest >= uint64(len(c.Code)) {
-		return false
-	}
-	// There is only one case where something on the return stack is invalid,
-	// and that's the initial value of (codelen+1). Other than that, we only
-	// ever push valid values on it.
-	// Therefore, the check above is sufficient, and we don't need to to the
-	// extra checks about the opcode and isCode
-	return true
-}
-
 // isCode returns true if the provided PC location is an actual opcode, as
 // opposed to a data-segment following a PUSHN operation.
 func (c *Contract) isCode(udest uint64) bool {
