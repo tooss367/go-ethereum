@@ -17,12 +17,35 @@
 package graphql
 
 import (
+	"context"
 	"testing"
+
+	"github.com/graph-gophers/graphql-go"
 )
 
 func TestBuildSchema(t *testing.T) {
 	// Make sure the schema can be parsed and matched up to the object model.
 	if _, err := newHandler(nil); err != nil {
 		t.Errorf("Could not construct GraphQL handler: %v", err)
+	}
+}
+
+func TestMaliciousInput_DeepNesting(t *testing.T) {
+	// Credits to Brian Sullivan for reporting this
+	//
+	// Send a query to GraphQL with multiple levels of nesting.
+	// This example payload uses 50 levels. Once sent, the system will exhaust
+	// RAM and peg CPUs while processing the query.
+	// The client is disconnected during the attack.
+	query := `{__schema { types { fields { type{ fields { type { fields { type { fields { type { fields{ type { fields{ type { fields{ type { fields{ type { fields{ type { fields { type { fields{ type { fields{ type { fields{ type { fields{ type { fields { type { fields { type { fields { type { fields { type { fields { type { fields { type { fields { type { fields { type { fields { name } } } } } } } } } }}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}`
+	q := Resolver{nil}
+	maxDepth := graphql.MaxDepth(5)
+	s, err := graphql.ParseSchema(schema, &q, maxDepth)
+	if err != nil {
+		t.Fatalf("error: %v ", err)
+	}
+	response := s.Exec(context.Background(), query, "", nil)
+	if response.Errors == nil {
+		t.Fatal("Expected error due to depth limit!")
 	}
 }

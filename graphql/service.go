@@ -77,8 +77,8 @@ func (s *Service) Start(server *p2p.Server) error {
 // It additionally exports an interactive query browser on the / endpoint.
 func newHandler(backend ethapi.Backend) (http.Handler, error) {
 	q := Resolver{backend}
-
-	s, err := graphql.ParseSchema(schema, &q)
+	depthLimit := graphql.MaxDepth(10)
+	s, err := graphql.ParseSchema(schema, &q, depthLimit)
 	if err != nil {
 		return nil, err
 	}
