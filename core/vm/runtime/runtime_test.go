@@ -484,6 +484,25 @@ func TestUint64JumpsubCases(t *testing.T) {
 			code)
 		Execute(code, nil, cfg)
 	}
+
+	{ // First eip testcase
+		//                      data  return
+		//offset step opcode    stack stack
+		//0      0    PUSH1 3   []    []
+		//1      1    JUMPSUB   [3]   [1]
+		//2      4    STOP      []    [1]
+		//3      2    BEGINSUB  []    [1]
+		//4      3    RETURNSUB []    []
+		code := []byte{
+			byte(vm.PUSH1), 4,
+			byte(vm.JUMPSUB),
+			byte(vm.STOP),
+			byte(vm.BEGINSUB),
+			byte(vm.RETURNSUB),
+		}
+		prettyPrint("This should jump into a subroutine, back out and stop.", code)
+	}
+
 	{
 		code := []byte{
 			byte(vm.PUSH9), 0x00, 0x00, 0x00, 0x00, 0x0, 0x00, 0x00, 0x00, (4 + 8),
@@ -496,7 +515,7 @@ func TestUint64JumpsubCases(t *testing.T) {
 			byte(vm.BEGINSUB),
 			byte(vm.RETURNSUB),
 		}
-		prettyPrint("This should be fine", code)
+		prettyPrint("This should execute fine, going into one two depths of subroutines", code)
 	}
 	// TODO(@holiman) move this test into an actual test, which not only prints
 	// out the trace.
@@ -513,5 +532,16 @@ func TestUint64JumpsubCases(t *testing.T) {
 			byte(vm.RETURNSUB),
 		}
 		prettyPrint("This should fail", code)
+	}
+	{
+		// This should fail at first opcode
+		code := []byte{
+			byte(vm.RETURNSUB),
+			byte(vm.PC),
+			byte(vm.PC),
+		}
+		prettyPrint("This should fail at first opcode, due to shallow `return_stack`", code)
+
+
 	}
 }
