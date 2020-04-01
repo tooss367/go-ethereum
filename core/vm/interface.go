@@ -35,9 +35,9 @@ type StateDB interface {
 	SetNonce(common.Address, uint64)
 
 	GetCodeHash(common.Address) common.Hash
-	GetCode(common.Address) []byte
+	GetCode(common.Address) (hash []byte, exist bool)
 	SetCode(common.Address, []byte)
-	GetCodeSize(common.Address) int
+	GetCodeSize(common.Address) (size int, exist bool)
 
 	AddRefund(uint64)
 	SubRefund(uint64)

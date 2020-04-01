@@ -95,6 +95,8 @@ const (
 	ExtcodeHashGasEIP1884        uint64 = 700  // Cost of EXTCODEHASH after EIP 1884 (part in Istanbul)
 	SelfdestructGasEIP150        uint64 = 5000 // Cost of SELFDESTRUCT post EIP 150 (Tangerine)
 
+	TrieMissPenalty uint64 = 3000 // Cost of 'penalty' for a trie-miss
+
 	// EXP has a dynamic portion depending on the size of the exponent
 	ExpByteFrontier uint64 = 10 // was set to 10 in Frontier
 	ExpByteEIP158   uint64 = 50 // was raised to 50 during Eip158 (Spurious Dragon)

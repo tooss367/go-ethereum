@@ -713,7 +713,7 @@ func (s *PublicBlockChainAPI) GetCode(ctx context.Context, address common.Addres
 	if state == nil || err != nil {
 		return nil, err
 	}
-	code := state.GetCode(address)
+	code, _ := state.GetCode(address)
 	return code, state.Error()
 }
 

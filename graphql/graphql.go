@@ -77,7 +77,8 @@ func (a *Account) Code(ctx context.Context) (hexutil.Bytes, error) {
 	if err != nil {
 		return hexutil.Bytes{}, err
 	}
-	return hexutil.Bytes(state.GetCode(a.address)), nil
+	code, _ := state.GetCode(a.address)
+	return hexutil.Bytes(code), nil
 }
 
 func (a *Account) Storage(ctx context.Context, args struct{ Slot common.Hash }) (common.Hash, error) {

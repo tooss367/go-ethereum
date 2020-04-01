@@ -19,6 +19,7 @@ package vm
 import (
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -90,4 +91,81 @@ func opChainID(pc *uint64, interpreter *EVMInterpreter, contract *Contract, memo
 func enable2200(jt *JumpTable) {
 	jt[SLOAD].constantGas = params.SloadGasEIP2200
 	jt[SSTORE].dynamicGas = gasSStoreEIP2200
+}
+
+// enablePenalties applies EIP-TBD (penalty for trie-misses)
+func enablePenaties(jt *JumpTable) {
+	jt[EXTCODEHASH].execute = opExtCodeHashWithPenalty
+	jt[EXTCODESIZE].execute = opExtCodeSizeWithPenalty
+	jt[BALANCE].execute = opBalanceWithPenalty
+	jt[EXTCODECOPY].execute = opExtCodeCopyWithPenalty
+	// TODO call variants
+}
+
+func opExtCodeSizeWithPenalty(pc *uint64, interpreter *EVMInterpreter, contract *Contract, memory *Memory, stack *Stack) ([]byte, error) {
+	slot := stack.peek()
+	size, exist := interpreter.evm.StateDB.GetCodeSize(common.BigToAddress(slot))
+	// TODO! Verify whether it's correct to use Empty, if or we should use Exists
+	// should be used for penalty-check
+	// Exists returns true for selfdestructed accounts, Empty returns false
+	slot.SetUint64(uint64(size))
+	if !exist && !contract.UseGas(params.TrieMissPenalty) {
+		return nil, ErrOutOfGas
+	}
+	return nil, nil
+}
+
+func opExtCodeCopyWithPenalty(pc *uint64, interpreter *EVMInterpreter, contract *Contract, memory *Memory, stack *Stack) ([]byte, error) {
+	var (
+		addr       = common.BigToAddress(stack.pop())
+		memOffset  = stack.pop()
+		codeOffset = stack.pop()
+		length     = stack.pop()
+	)
+	code, exist := interpreter.evm.StateDB.GetCode(addr)
+	if !exist && !contract.UseGas(params.TrieMissPenalty) {
+		// TODO! Verify whether it's correct to use Empty, if or we should use Exists
+		// should be used for penalty-check
+		// Exists returns true for selfdestructed accounts, Empty returns false
+		return nil, ErrOutOfGas
+	}
+	codeCopy := getDataBig(code, codeOffset, length)
+	memory.Set(memOffset.Uint64(), length.Uint64(), codeCopy)
+
+	interpreter.intPool.put(memOffset, codeOffset, length)
+	return nil, nil
+}
+
+func opExtCodeHashWithPenalty(pc *uint64, interpreter *EVMInterpreter, contract *Contract, memory *Memory, stack *Stack) ([]byte, error) {
+	slot := stack.peek()
+	address := common.BigToAddress(slot)
+	if interpreter.evm.StateDB.Empty(address) {
+		// TODO! Verify whether it's correct to use Empty, if or we should use Exists
+		// should be used for penalty-check
+		// Exists returns true for selfdestructed accounts, Empty returns false
+		if !contract.UseGas(params.TrieMissPenalty) {
+			return nil, ErrOutOfGas
+		}
+		slot.SetUint64(0)
+	} else {
+		slot.SetBytes(interpreter.evm.StateDB.GetCodeHash(address).Bytes())
+	}
+	return nil, nil
+}
+
+func opBalanceWithPenalty(pc *uint64, interpreter *EVMInterpreter, contract *Contract, memory *Memory, stack *Stack) ([]byte, error) {
+	slot := stack.peek()
+	// TODO! Verify whether it's correct to use Empty, if or we should use Exists
+	// should be used for penalty-check
+	// Exists returns true for selfdestructed accounts, Empty returns false
+	target := common.BigToAddress(slot)
+	if interpreter.evm.StateDB.Empty(target) {
+		if !contract.UseGas(params.TrieMissPenalty) {
+			return nil, ErrOutOfGas
+		}
+		slot.SetUint64(0)
+		return nil, nil
+	}
+	slot.Set(interpreter.evm.StateDB.GetBalance(target))
+	return nil, nil
 }

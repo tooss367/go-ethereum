@@ -730,7 +730,8 @@ func (api *RetestethAPI) GetCode(ctx context.Context, address common.Address, bl
 	if err != nil {
 		return nil, err
 	}
-	return statedb.GetCode(address), nil
+	code, _ := statedb.GetCode(address)
+	return code, nil
 }
 
 func (api *RetestethAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNr math.HexOrDecimal64) (uint64, error) {

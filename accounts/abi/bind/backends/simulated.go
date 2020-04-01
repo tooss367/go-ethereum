@@ -148,8 +148,8 @@ func (b *SimulatedBackend) CodeAt(ctx context.Context, contract common.Address, 
 	if err != nil {
 		return nil, err
 	}
-
-	return statedb.GetCode(contract), nil
+	code, _ := statedb.GetCode(contract)
+	return code, nil
 }
 
 // BalanceAt returns the wei balance of a certain account in the blockchain.
@@ -333,8 +333,8 @@ func (b *SimulatedBackend) TransactionInBlock(ctx context.Context, blockHash com
 func (b *SimulatedBackend) PendingCodeAt(ctx context.Context, contract common.Address) ([]byte, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-
-	return b.pendingState.GetCode(contract), nil
+	code, _ := b.pendingState.GetCode(contract)
+	return code, nil
 }
 
 // CallContract executes a contract call.

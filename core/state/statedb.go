@@ -278,27 +278,27 @@ func (s *StateDB) BlockHash() common.Hash {
 	return s.bhash
 }
 
-func (s *StateDB) GetCode(addr common.Address) []byte {
+func (s *StateDB) GetCode(addr common.Address) ([]byte, bool) {
 	stateObject := s.getStateObject(addr)
 	if stateObject != nil {
-		return stateObject.Code(s.db)
+		return stateObject.Code(s.db), true
 	}
-	return nil
+	return nil, false
 }
 
-func (s *StateDB) GetCodeSize(addr common.Address) int {
+func (s *StateDB) GetCodeSize(addr common.Address) (int, bool) {
 	stateObject := s.getStateObject(addr)
 	if stateObject == nil {
-		return 0
+		return 0, false
 	}
 	if stateObject.code != nil {
-		return len(stateObject.code)
+		return len(stateObject.code), true
 	}
 	size, err := s.db.ContractCodeSize(stateObject.addrHash, common.BytesToHash(stateObject.CodeHash()))
 	if err != nil {
 		s.setError(err)
 	}
-	return size
+	return size, true
 }
 
 func (s *StateDB) GetCodeHash(addr common.Address) common.Hash {
