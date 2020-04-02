@@ -18,6 +18,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -216,6 +217,20 @@ Use "ethereum dump 0" to dump the genesis block.`,
 			utils.YoloV2Flag,
 			utils.LegacyTestnetFlag,
 			utils.SyncModeFlag,
+		},
+		Category: "BLOCKCHAIN COMMANDS",
+	}
+	trieRepairCommand = cli.Command{
+		Action:    utils.MigrateFlags(repairTrie),
+		Name:      "repairtrie",
+		Usage:     "Check and repair geth state database",
+		ArgsUsage: " ",
+		Flags: []cli.Flag{
+			utils.DataDirFlag,
+			utils.CacheFlag,
+			utils.RopstenFlag,
+			utils.RinkebyFlag,
+			utils.GoerliFlag,
 		},
 		Category: "BLOCKCHAIN COMMANDS",
 	}
@@ -604,6 +619,23 @@ func inspect(ctx *cli.Context) error {
 	defer chainDb.Close()
 
 	return rawdb.InspectDatabase(chainDb)
+}
+
+func repairTrie(ctx *cli.Context) error {
+	stack,_ := makeConfigNode(ctx)
+	defer stack.Close()
+	chain, chainDb := utils.MakeChain(ctx, stack, true)
+	defer chainDb.Close()
+	block := chain.CurrentBlock()
+	if block == nil {
+		return errors.New("No block found!")
+	}
+	log.Info("State root", "blockhash", block.Hash(), "state root", block.Root())
+	state, err := state.New(block.Root(), state.NewDatabase(chainDb), nil)
+	if err != nil {
+		return err
+	}
+	return state.Verify([]byte{})
 }
 
 // hashish returns true for strings that look like hashes.

@@ -19,6 +19,7 @@ package state
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -201,4 +202,37 @@ func (s *StateDB) IteratorDump(excludeCode, excludeStorage, excludeMissingPreima
 	}
 	iterator.Next = s.DumpToCollector(iterator, excludeCode, excludeStorage, excludeMissingPreimages, start, maxResults)
 	return *iterator
+}
+
+func (s *StateDB) Verify(start []byte) error {
+	log.Info("Starting verification procedure")
+	it := s.trie.NodeIterator(start)
+	logged := time.Now()
+	startTime := time.Now()
+	lastPath := start
+	nodes := uint64(0)
+	for it.Next(true) {
+		hash, path, err := it.Hash(), it.Path(), it.Error()
+		if err != nil {
+			return fmt.Errorf("trie error: %v (last successfull path was %x", err, lastPath)
+		}
+		lastPath = path
+		nodes++
+		if time.Since(logged) > 8*time.Second {
+			context := []interface{}{
+				"elapsed", time.Since(startTime),
+				"nodes", nodes,
+				"hash", hash,
+				"path", fmt.Sprintf("0x%x", path),
+				"error", err,
+			}
+			if it.Leaf() {
+				context = append(context, []interface{}{"leafkey", fmt.Sprintf("0x%x", it.LeafKey())}...)
+			}
+			log.Info("Verifying state trie", context...)
+			logged = time.Now()
+		}
+	}
+	log.Info("Verified state trie", "elapsed", time.Since(startTime), "nodes", nodes)
+	return nil
 }

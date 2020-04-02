@@ -231,6 +231,7 @@ func init() {
 		dumpCommand,
 		dumpGenesisCommand,
 		inspectCommand,
+		trieRepairCommand,
 		// See accountcmd.go:
 		accountCommand,
 		walletCommand,
