@@ -201,6 +201,20 @@ Use "ethereum dump 0" to dump the genesis block.`,
 		},
 		Category: "BLOCKCHAIN COMMANDS",
 	}
+	dumpSnapCommand = cli.Command{
+		Action:    utils.MigrateFlags(snapDump),
+		Name:      "snapdump",
+		Usage:     "Dump out accounts (key/value) to files",
+		ArgsUsage: " ",
+		Flags: []cli.Flag{
+			utils.DataDirFlag,
+			utils.CacheFlag,
+			utils.TestnetFlag,
+			utils.RinkebyFlag,
+			utils.GoerliFlag,
+		},
+		Category: "BLOCKCHAIN COMMANDS",
+	}
 )
 
 // initGenesis will initialise the given JSON format genesis file and writes it as
@@ -580,4 +594,55 @@ func inspect(ctx *cli.Context) error {
 func hashish(x string) bool {
 	_, err := strconv.Atoi(x)
 	return err != nil
+}
+
+func snapDump(ctx *cli.Context) error {
+	node, _ := makeConfigNode(ctx)
+	chain, chainDb := utils.MakeChain(ctx, node)
+
+	defer func() {
+		node.Close()
+		chain.Stop()
+		chainDb.Close()
+	}()
+
+	snapTree := chain.Snapshot()
+	if snapTree == nil {
+		return fmt.Errorf("No snapshot tree available")
+	}
+	block := chain.CurrentBlock()
+	if block == nil {
+		return fmt.Errorf("no blocks present")
+	}
+	root := block.Root()
+	it, err := snapTree.AccountIterator(root, common.Hash{})
+	if err != nil {
+		return fmt.Errorf("Could not create iterator for root %x: %v", root, err)
+	}
+	vFilename := "values.rlp"
+	kFilename := "keys.rlp"
+	valFile, err := os.OpenFile(vFilename, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0666)
+	if err != nil {
+		return fmt.Errorf("Failed to open file: %v", err)
+	}
+	defer valFile.Close()
+
+	keyFile, err := os.OpenFile(kFilename, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0666)
+	if err != nil {
+		return fmt.Errorf("Failed to open file: %v", err)
+	}
+	defer keyFile.Close()
+	for counter := 0; it.Next() && counter < 10000; counter++ {
+		if _, err := keyFile.Write(it.Hash().Bytes()); err != nil {
+			return err
+		}
+		if _, err := valFile.Write(it.Account()); err != nil {
+			return err
+		}
+	}
+	if err := it.Error(); err != nil {
+		return err
+	}
+	log.Info("Generation done", "accounts", vFilename, "keys", kFilename)
+	return nil
 }

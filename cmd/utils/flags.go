@@ -1492,6 +1492,10 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *eth.Config) {
 	if !ctx.GlobalIsSet(SnapshotFlag.Name) {
 		cfg.SnapshotCache = 0 // Disabled
 	}
+	// HACK!
+	if ctx.Command.Name == "snapdump" {
+		cfg.SnapshotCache = ctx.GlobalInt(CacheFlag.Name) * ctx.GlobalInt(CacheSnapshotFlag.Name) / 100
+	}
 	if ctx.GlobalIsSet(DocRootFlag.Name) {
 		cfg.DocRoot = ctx.GlobalString(DocRootFlag.Name)
 	}
