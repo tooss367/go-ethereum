@@ -597,7 +597,7 @@ func hashish(x string) bool {
 }
 
 func snapDump(ctx *cli.Context) error {
-	node, _ := makeConfigNode(ctx)
+	node, config := makeConfigNode(ctx)
 	chain, chainDb := utils.MakeChain(ctx, node)
 
 	defer func() {
@@ -619,8 +619,9 @@ func snapDump(ctx *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("Could not create iterator for root %x: %v", root, err)
 	}
-	vFilename := "values.rlp"
-	kFilename := "keys.rlp"
+	dd := config.Node.DataDir
+	vFilename := filepath.Join(dd, "values.rlp")
+	kFilename := filepath.Join(dd, "keys.rlp")
 	valFile, err := os.OpenFile(vFilename, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0666)
 	if err != nil {
 		return fmt.Errorf("Failed to open file: %v", err)
