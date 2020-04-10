@@ -531,7 +531,9 @@ func TestUint64JumpsubCases(t *testing.T) {
 			byte(vm.BEGINSUB),
 			byte(vm.RETURNSUB),
 		}
-		prettyPrint("This should fail", code)
+		prettyPrint("This should fail, since the given location is outside of the "+
+			"code-range. The code is the same as previous example, except that the "+
+			"pushed location is `0x01000000000000000c` instead of `0x0c`.", code)
 	}
 	{
 		// This should fail at first opcode
@@ -541,7 +543,6 @@ func TestUint64JumpsubCases(t *testing.T) {
 			byte(vm.PC),
 		}
 		prettyPrint("This should fail at first opcode, due to shallow `return_stack`", code)
-
 
 	}
 }
