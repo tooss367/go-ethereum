@@ -373,7 +373,7 @@ func (s *stepCounter) CaptureEnd(output []byte, gasUsed uint64, t time.Duration,
 }
 
 func TestJumpSub1024Limit(t *testing.T) {
-	state, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()))
+	state, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 	address := common.HexToAddress("0x0a")
 	// Code is
 	// 0 beginsub
@@ -408,7 +408,7 @@ func TestJumpSub1024Limit(t *testing.T) {
 }
 
 func TestReturnSubShallow(t *testing.T) {
-	state, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()))
+	state, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 	address := common.HexToAddress("0x0a")
 	// The code does returnsub without having anything on the returnstack.
 	// It should not panic, but just fail after one step

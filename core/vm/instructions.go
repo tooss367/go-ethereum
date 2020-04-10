@@ -677,17 +677,15 @@ func opBeginSub(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) (
 }
 
 func opJumpSub(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
-	// TODO(@holiman, @gcolvin) - verify that this is as expected. The EIP says to prepopulate the
-	// returnstack with one element pointing outside the code size. Should this check be for 1023, 1022 or 1024?
-	if len(callContext.rstack.data) > 1023 {
+	if len(callContext.rstack.data) >= 1023 {
 		return nil, errReturnStackExceeded
 	}
-	pos := stack.pop()
+	pos := callContext.stack.pop()
 	if !pos.IsUint64() {
 		return nil, errInvalidJump
 	}
 	posU64 := pos.Uint64()
-	if !contract.validJumpSubdest(posU64) {
+	if !callContext.contract.validJumpSubdest(posU64) {
 		return nil, errInvalidJump
 	}
 	callContext.rstack.push(*pc)
@@ -697,13 +695,14 @@ func opJumpSub(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([
 }
 
 func opReturnSub(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
-	if len(callContext.rstack.data) == 0 {
+	rstack := callContext.rstack
+	if len(rstack.data) == 0 {
 		return nil, errInvalidRetsub
 	}
 	// Other than the check that the return stack is not empty, there is no
 	// need to validate the pc from 'returns', since we only ever push valid
-	//values onto it via jumpsub.
-	*pc = returns.pop()
+	// values onto it via jumpsub.
+	*pc = rstack.pop()
 	return nil, nil
 }
 
