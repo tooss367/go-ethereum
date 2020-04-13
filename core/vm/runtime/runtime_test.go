@@ -468,9 +468,9 @@ func TestReturnCases(t *testing.T) {
 
 }
 
-// TestUint64JumpsubCases tests that jumpsub destination is not cropped
-// to uint64
-func TestUint64JumpsubCases(t *testing.T) {
+// TestEipExampleCases contains various testcases that are used for the
+// EIP examples
+func TestEipExampleCases(t *testing.T) {
 	cfg := &Config{
 		EVMConfig: vm.Config{
 			Debug:     true,
@@ -486,13 +486,6 @@ func TestUint64JumpsubCases(t *testing.T) {
 	}
 
 	{ // First eip testcase
-		//                      data  return
-		//offset step opcode    stack stack
-		//0      0    PUSH1 3   []    []
-		//1      1    JUMPSUB   [3]   [1]
-		//2      4    STOP      []    [1]
-		//3      2    BEGINSUB  []    [1]
-		//4      3    RETURNSUB []    []
 		code := []byte{
 			byte(vm.PUSH1), 4,
 			byte(vm.JUMPSUB),
@@ -545,4 +538,19 @@ func TestUint64JumpsubCases(t *testing.T) {
 		prettyPrint("This should fail at first opcode, due to shallow `return_stack`", code)
 
 	}
+	{ // First eip testcase
+		code := []byte{
+			byte(vm.PUSH1), 5, // Jump past the subroutine
+			byte(vm.JUMP),
+			byte(vm.BEGINSUB),
+			byte(vm.RETURNSUB),
+			byte(vm.JUMPDEST),
+			byte(vm.PUSH1), 3, // Now invoke the subroutine
+			byte(vm.JUMPSUB),
+		}
+		prettyPrint("In this example. the JUMPSUB is on the last byte of code. When the "+
+			"subroutine returns, it should hit the 'virtual stop' _after_ the bytecode, "+
+			"and not exit with error", code)
+	}
+
 }
