@@ -125,7 +125,7 @@ func codeBitmap3(code []byte) (bitvec, []uint16) {
 				pc++
 			}
 		} else {
-			if pc % 32 == 0 && op == BEGINSUB  {
+			if op == BEGINSUB && pc % 32 == 0 {
 				srSizeMap[curStart/32] = uint16((pc - curStart)/32)
 				curStart = pc
 			}
@@ -133,7 +133,7 @@ func codeBitmap3(code []byte) (bitvec, []uint16) {
 		}
 	}
 	// Also need to set the final size
-	srSizeMap[curStart/32] = uint16((len(code) - curStart)/32)
+	srSizeMap[curStart/32] = uint16((uint64(len(code)) - curStart)/32)
 	return codeDataBitmap, srSizeMap
 }
 
