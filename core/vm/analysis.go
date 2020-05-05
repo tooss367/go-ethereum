@@ -100,6 +100,45 @@ func codeBitmap2(code []byte) (bitvec, bitvec) {
 	return codeDataBitmap, subroutineBitmap
 }
 
+// codeBitmap collects data locations in code.
+func codeBitmap3(code []byte) (bitvec, []uint16) {
+	// The bitmap is 4 bytes longer than necessary, in case the code
+	// ends with a PUSH32, the algorithm will push zeroes onto the
+	// bitvector outside the bounds of the actual code.
+	codeDataBitmap := make(bitvec, len(code)/8+1+4)
+
+	// The extra padding of up to 32 bytes is handled by padding with 1 element
+	srSizeMap := make([]uint16, len(code)/32+1)
+	curStart := uint64(0)
+	for pc := uint64(0); pc < uint64(len(code)); {
+		op := OpCode(code[pc])
+
+		if op >= PUSH1 && op <= PUSH32 {
+			numbits := op - PUSH1 + 1
+			pc++
+			for ; numbits >= 8; numbits -= 8 {
+				codeDataBitmap.set8(pc) // 8
+				pc += 8
+			}
+			for ; numbits > 0; numbits-- {
+				codeDataBitmap.set(pc)
+				pc++
+			}
+		} else {
+			if pc % 32 == 0 && op == BEGINSUB  {
+				srSizeMap[curStart/32] = uint16((pc - curStart)/32)
+				curStart = pc
+			}
+			pc++
+		}
+	}
+	// Also need to set the final size
+	srSizeMap[curStart/32] = uint16((len(code) - curStart)/32)
+	return codeDataBitmap, srSizeMap
+}
+
+
+
 func (analysis *bitvec) validJumpdest(dest *big.Int) bool {
 	// PC cannot go beyond len(code) and certainly can't be bigger than 63 bits.
 	// Don't bother checking for JUMPDEST in that case.

@@ -76,7 +76,7 @@ func BenchmarkJumpdestAnalysis_1200k(bench *testing.B) {
 		code := codeFill(size, STOP)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			codeBitmap(code)
+			codeBitmap3(code)
 		}
 		b.StopTimer()
 	})
@@ -85,7 +85,7 @@ func BenchmarkJumpdestAnalysis_1200k(bench *testing.B) {
 		code := codeFill(size, JUMPDEST)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			codeBitmap(code)
+			codeBitmap3(code)
 		}
 		b.StopTimer()
 	})
@@ -94,7 +94,7 @@ func BenchmarkJumpdestAnalysis_1200k(bench *testing.B) {
 		code := codeFill(size, PUSH32)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			codeBitmap(code)
+			codeBitmap3(code)
 		}
 		b.StopTimer()
 	})
@@ -103,7 +103,7 @@ func BenchmarkJumpdestAnalysis_1200k(bench *testing.B) {
 		code := codeFill(size, PUSH1)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			codeBitmap(code)
+			codeBitmap3(code)
 		}
 		b.StopTimer()
 	})
@@ -111,7 +111,7 @@ func BenchmarkJumpdestAnalysis_1200k(bench *testing.B) {
 		code := codeFill(size, BEGINSUB)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			codeBitmap(code)
+			codeBitmap3(code)
 		}
 		b.StopTimer()
 	})
@@ -123,7 +123,7 @@ func BenchmarkJumpdestAnalysis_1200k(bench *testing.B) {
 		}
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			codeBitmap(code)
+			codeBitmap3(code)
 		}
 		b.StopTimer()
 	})
@@ -157,7 +157,6 @@ func BenchmarkJumpdestValidation(b *testing.B){
 		}
 		b.StopTimer()
 	})
-
 
 }
 
