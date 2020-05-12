@@ -61,8 +61,8 @@ var (
 		utils.UnlockedAccountFlag,
 		utils.PasswordFileFlag,
 		utils.BootnodesFlag,
-		utils.BootnodesV4Flag,
-		utils.BootnodesV5Flag,
+		utils.LegacyBootnodesV4Flag,
+		utils.LegacyBootnodesV5Flag,
 		utils.DataDirFlag,
 		utils.AncientFlag,
 		utils.KeyStoreDirFlag,
@@ -92,6 +92,7 @@ var (
 		utils.ExitWhenSyncedFlag,
 		utils.GCModeFlag,
 		utils.SnapshotFlag,
+		utils.TxLookupLimitFlag,
 		utils.LightServeFlag,
 		utils.LegacyLightServFlag,
 		utils.LightIngressFlag,
@@ -314,6 +315,10 @@ func prepare(ctx *cli.Context) {
 	// Check https://github.com/elastic/gosigar#supported-platforms
 	if runtime.GOOS != "openbsd" {
 		if err := mem.Get(); err == nil {
+			if 32<<(^uintptr(0)>>63) == 32 && mem.Total > 2*1024*1024*1024 {
+				log.Warn("Lowering memory allowance on 32bit arch", "available", mem.Total/1024/1024, "addressable", 2*1024)
+				mem.Total = 2 * 1024 * 1024 * 1024
+			}
 			allowance := int(mem.Total / 1024 / 1024 / 3)
 			if cache := ctx.GlobalInt(utils.CacheFlag.Name); cache > allowance {
 				log.Warn("Sanitizing cache to Go's GC limits", "provided", cache, "updated", allowance)

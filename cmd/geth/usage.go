@@ -78,6 +78,7 @@ var AppHelpFlagGroups = []flagGroup{
 			utils.SyncModeFlag,
 			utils.ExitWhenSyncedFlag,
 			utils.GCModeFlag,
+			utils.TxLookupLimitFlag,
 			utils.EthStatsURLFlag,
 			utils.IdentityFlag,
 			utils.LightKDFFlag,
@@ -183,8 +184,8 @@ var AppHelpFlagGroups = []flagGroup{
 		Name: "NETWORKING",
 		Flags: []cli.Flag{
 			utils.BootnodesFlag,
-			utils.BootnodesV4Flag,
-			utils.BootnodesV5Flag,
+			utils.LegacyBootnodesV4Flag,
+			utils.LegacyBootnodesV5Flag,
 			utils.DNSDiscoveryFlag,
 			utils.ListenPortFlag,
 			utils.MaxPeersFlag,
