@@ -237,7 +237,7 @@ type bls12381G2MultiExp struct{}
 // RequiredGas returns the gas required to execute the pre-compiled contract.
 func (c *bls12381G2MultiExp) RequiredGas(input []byte) uint64 {
 	k := len(input) / 160
-	maxDiscountLen := len(params.Bls12381MultiExpDiscountTable)
+	maxDiscountLen := len(params.Bls12381MultiExpDiscountTable)-1
 	if k >= maxDiscountLen {
 		k = maxDiscountLen
 	}

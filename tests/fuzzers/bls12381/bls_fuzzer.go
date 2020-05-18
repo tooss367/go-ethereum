@@ -16,24 +16,34 @@
 
 package bls
 
+import "bytes"
+
+type precompile interface{
+	RequiredGas(input []byte) uint64
+	Run(input []byte) ([]byte, error)
+}
+
 func Fuzz(data []byte) int {
-	a := new(bls12381G1Add)
-	a.Run(data)
-	b := new(bls12381G1Mul)
-	b.Run(data)
-	c := new(bls12381G1MultiExp)
-	c.Run(data)
-	d := new(bls12381G2Add)
-	d.Run(data)
-	e := new(bls12381G2Mul)
-	e.Run(data)
-	f := new(bls12381G2MultiExp)
-	f.Run(data)
-	g := new(bls12381MapG1)
-	g.Run(data)
-	h := new(bls12381MapG2)
-	h.Run(data)
-	i := new(bls12381Pairing)
-	i.Run(data)
+
+	precompiles := []precompile{
+		new(bls12381G1Add),// split, swap
+		new(bls12381G1Mul),
+		new(bls12381G1MultiExp),
+		new(bls12381G2Add),
+		new(bls12381G2Mul),
+		new(bls12381G2MultiExp),
+		new(bls12381MapG1),
+		new(bls12381MapG2),
+		new(bls12381Pairing),
+	}
+	originaldata := make([]byte, len(data))
+	copy(originaldata, data)
+	for _, precompile := range precompiles{
+		precompile.RequiredGas(data)
+		precompile.Run(data)
+		if !bytes.Equal(originaldata, data){
+			panic("Input modified!")
+		}
+	}
 	return 0
 }
