@@ -24,7 +24,6 @@ type precompile interface{
 }
 
 func Fuzz(data []byte) int {
-
 	precompiles := []precompile{
 		new(bls12381G1Add),// split, swap
 		new(bls12381G1Mul),
@@ -37,13 +36,17 @@ func Fuzz(data []byte) int {
 		new(bls12381Pairing),
 	}
 	originaldata := make([]byte, len(data))
+	var promote = 0
 	copy(originaldata, data)
 	for _, precompile := range precompiles{
 		precompile.RequiredGas(data)
-		precompile.Run(data)
+		_, err := precompile.Run(data)
 		if !bytes.Equal(originaldata, data){
 			panic("Input modified!")
 		}
+		if err == nil{ 
+			promote |= 1
+		}
 	}
-	return 0
+	return promote
 }
