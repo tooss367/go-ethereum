@@ -1,0 +1,46 @@
+package main
+
+import (
+	"crypto/sha1"
+	"fmt"
+	"github.com/ethereum/go-ethereum/common"
+	"io/ioutil"
+)
+
+// corpus minimizer
+func minimize() error{
+
+	info, err :=ioutil.ReadDir("corpus")
+	if err != nil{
+		return err
+	}
+	for _, fd := range info {
+		infile := fmt.Sprintf("corpus/%v", fd.Name())
+		data, err := ioutil.ReadFile(infile)
+		if err != nil{
+			return err
+		}
+		data2 := common.FromHex(string(data))
+		if len(data2) > 0{
+			data = data2
+			fmt.Printf("canonicalized %v\n", infile)
+		}
+		checksum := sha1.Sum(data)
+		outf := fmt.Sprintf("mincorpus/%x", checksum)
+		err = ioutil.WriteFile(outf,data ,0777)
+		if err != nil{
+			return err
+		}
+		fmt.Printf("Saved %v\n", outf)
+	}
+	return nil
+}
+
+
+func main() {
+
+	err := minimize()
+	if err != nil{
+		fmt.Printf("error: %v\n", err)
+	}
+}
