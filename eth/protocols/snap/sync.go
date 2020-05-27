@@ -1131,7 +1131,7 @@ func (s *Syncer) OnAccounts(peer PeerIF, id uint64, hashes []common.Hash, accoun
 	for _, node := range proof {
 		size += common.StorageSize(len(node))
 	}
-	logger := peer.Log().New("reqid",  peer.ID())
+	logger := peer.Log().New("reqid", peer.ID())
 	logger.Trace("Delivering range of accounts", "hashes", len(hashes), "accounts", len(accounts), "proofs", len(proof), "bytes", size)
 
 	// Whether or not the response is valid, we can mark the peer as idle and
