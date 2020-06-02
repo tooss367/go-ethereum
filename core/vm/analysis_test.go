@@ -96,6 +96,53 @@ func TestLebEncodeDecode(t *testing.T) {
 	}
 }
 
+func TestShadowAnalysis(t *testing.T) {
+
+	type testcase struct {
+		code string
+		rout string
+	}
+	cases := []testcase{
+		{
+			code: "6001600160015c60015c5c5c",
+			rout: "000000000000111111223344",
+		},
+		{
+			code: "5c5c5c5c5c5c5c5c5c5c5c5c",
+			rout: "112233445566778899aabbcc",
+		},
+		{
+			code: "7f5c5c5c5c5c5c5c5c5c5c5c",
+			rout: "000000000000000000000000",
+		},
+		{
+			code: "615c5c5c00605c5c7f5c5c5c",
+			rout: "000000111111112222222222",
+		},
+	}
+	for i, tc := range cases {
+		code := common.FromHex(tc.code)
+		shadow := shadowMap(code)
+		routines := common.FromHex(tc.rout)
+		substart := 0
+		prev := byte(0)
+		for x := 0; x < len(code); x++ {
+			if routines[x] != prev {
+				substart = x
+				prev = routines[x]
+			}
+			for y := 0; y < len(code); y++ {
+				got := shadow.isSameSubroutine(uint16(substart), uint16(y))
+				exp := routines[substart] == routines[y]
+				if got != exp {
+					t.Fatalf("test %d: is %d at subroutine %d? got %v exp %v",
+						i, y, substart, got, exp)
+				}
+			}
+		}
+	}
+}
+
 //BenchmarkLEB/encode-6         	346602476	         3.06 ns/op	       0 B/op	       0 allocs/op
 //BenchmarkLEB/decode-6         	362383606	         3.48 ns/op	       0 B/op	       0 allocs/op
 func BenchmarkLEB(b *testing.B) {

@@ -16,6 +16,8 @@
 
 package vm
 
+import "fmt"
+
 // bitvec is a bit vector which maps bytes in a program.
 // An unset bit means the byte is an opcode, a set bit means
 // it's data (i.e. argument of PUSHxx).
@@ -78,6 +80,16 @@ func (shadow *shadowmap) set8(pos uint64) {
 	(*shadow)[pos] |= 0x80
 }
 
+// isSameSubroutine returns true if 'loc' is within the subroutine started
+// at 'subStart'.
+func (shadow *shadowmap) isSameSubroutine(subStart, loc uint16) bool {
+	if loc < subStart {
+		return false
+	}
+	srSize := lebDecode((*shadow)[subStart:])
+	return loc < subStart+srSize
+}
+
 // shadowMap creates a 'shadow map' of the code. The shadow-map is an implementation of
 // the analysis to verify JUMP restructions for subroutines. It uses a backing
 // array of the same size as the analyzed code.
@@ -85,7 +97,7 @@ func (shadow *shadowmap) set8(pos uint64) {
 // - If the op is a BEGINSUB, the size of the subroutines is LEB-encoded, starting
 //   at 'loc', possibly covering a span of 3 bytes. This is encoded into the
 //   7 least significant bits of the bytes in question.
-func shadowMap(code []byte) []byte {
+func shadowMap(code []byte) shadowmap {
 	shadow := make(shadowmap, len(code)+31)
 	// TODO: Check if we need to make it longer than the code, in case it
 	// ends on a PUSHX
