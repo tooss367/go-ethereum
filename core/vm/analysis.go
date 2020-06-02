@@ -125,9 +125,11 @@ func shadowMap(code []byte) []byte {
 // This encoding differs from the one on wikipedia: we use 6+1 bits for encoding,
 // to allow the MSB bit to be used as a code/or/data-marker
 func lebEncode(n uint16, out []byte) {
-	var b1 = byte(n & 0x3F)
-	var b2 = byte(n >> 7 & 0x3f)
-	var b3 = byte(n >> 14 & 0x3f)
+	var (
+		b1 = byte(n & 0x3F)
+		b2 = byte(n >> 7 & 0x3f)
+		b3 = byte(n >> 14)
+	)
 	if b3 != 0 {
 		out[2] |= byte(b3)
 		out[1] |= b2 | 0x70
