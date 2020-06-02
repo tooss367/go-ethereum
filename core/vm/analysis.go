@@ -127,20 +127,38 @@ func shadowMap(code []byte) []byte {
 func lebEncode(n uint16, out []byte) {
 	var (
 		b1 = byte(n & 0x3F)
-		b2 = byte(n >> 7 & 0x3f)
-		b3 = byte(n >> 14)
+		b2 = byte(n >> 6 & 0x3f)
+		b3 = byte(n >> 12)
 	)
 	if b3 != 0 {
 		out[2] |= byte(b3)
-		out[1] |= b2 | 0x70
-		out[0] |= b1 | 0x70
+		out[1] |= b2 | 0x40
+		out[0] |= b1 | 0x40
 		return
 	}
 	if b2 != 0 {
 		out[1] |= b2
-		out[0] |= b1 | 0x70
+		out[0] |= b1 | 0x40
 		return
 	}
 	out[0] |= b1
 	return
+}
+
+// lebDecode decodes the LEB-encoded int16.
+func lebDecode(in []byte) uint16 {
+	var res uint16
+	b := in[0]
+	res |= uint16(0x3f & b)
+	if b&0x40 == 0 {
+		return res
+	}
+	b = in[1]
+	res |= (uint16(0x3f&b) << 6)
+	if b&0x40 == 0 {
+		return res
+	}
+	b = in[2]
+	res |= (uint16(0x3f&b) << 12)
+	return res
 }

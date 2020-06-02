@@ -69,32 +69,9 @@ func codeFill(size int, op OpCode) []byte {
 	return code
 }
 
-func xlebEncode(n uint16, out []byte) {
-	var b = byte(n & 0x3F)
-	n >>= 7
-	if n == 0 {
-		out[0] |= b
-		return
-	}
-	b |= 0x70
-	out[0] |= b
-	b = byte(n & 0x3F)
-	n >>= 7
-	if n == 0 {
-		out[1] |= b
-		return
-	}
-	// We had only 16 bits to begin with, have shifted out 14 bits by now,
-	// so can skip some checks
-	out[1] |= b | 0x70
-	out[2] |= byte(n)
-	return
-}
-
 func TestLEB(t *testing.T) {
-
-	inputs := []uint16{0, 1, 31, 1023, 1024, 0xc000, 0xffff}
-	exp := []string{"000000", "010000", "1f0000", "7f0700", "700800", "707003", "7f7f03"}
+	inputs := []uint16{0, 1, 31, 64, 1023, 1024, 0xc000, 0xffff}
+	exp := []string{"000000", "010000", "1f0000", "400100", "7f0f00", "401000", "40400c", "7f7f0f"}
 	for i, num := range inputs {
 		bitmap := make([]byte, 3)
 		lebEncode(num, bitmap)
@@ -104,22 +81,49 @@ func TestLEB(t *testing.T) {
 	}
 }
 
-// BenchmarkLEB-6   	15020988	        84.0 ns/op (uint64)
-// BenchmarkLEB-6   	36124290	        33.6 ns/op (uint16)
-// BenchmarkLEB-6   	164882204	         6.93 ns/op(pass slice)
-// BenchmarkLEB-6   	218974294	         4.92 ns/op (unrolled loop)
-// BenchmarkLEB-6   	792262876	         1.57 ns/op (removed idx-counter)
-// BenchmarkLEB-6   	792865429	         1.50 ns/op
-// BenchmarkLEB-6   	795727504	         1.47 ns/op (less branching)
+func TestLebEncodeDecode(t *testing.T) {
+	data := make([]byte, 3)
+	zero := make([]byte, 3)
+	for i := 0; i < 65536; i++ {
+		// clear buf
+		copy(data, zero)
+		exp := uint16(i)
+		lebEncode(exp, data)
+		got := lebDecode(data)
+		if exp != got {
+			t.Fatalf("exp %d, got %d: %x", exp, got, data)
+		}
+	}
+}
 
+//BenchmarkLEB/encode-6         	346602476	         3.06 ns/op	       0 B/op	       0 allocs/op
+//BenchmarkLEB/decode-6         	362383606	         3.48 ns/op	       0 B/op	       0 allocs/op
 func BenchmarkLEB(b *testing.B) {
 	bitmap := make([]byte, 20)
-
-	for i := 0; i < b.N; i++ {
-		lebEncode(0xffff, bitmap)
-		lebEncode(0xff, bitmap)
-		lebEncode(0x0, bitmap)
-	}
+	b.Run("encode", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			lebEncode(0xffff, bitmap)
+			lebEncode(0xff, bitmap)
+			lebEncode(0x0, bitmap)
+		}
+	})
+	var (
+		x = make([]byte, 20)
+		y = make([]byte, 20)
+		z = make([]byte, 20)
+	)
+	lebEncode(0xffff, x)
+	lebEncode(0xff, y)
+	lebEncode(0x0, z)
+	b.Run("decode", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			lebDecode(x)
+			lebDecode(y)
+			lebDecode(z)
+		}
+	})
 }
 
 // BenchmarkJumpdestHashing_1200k benchmarks a segment of code consisting of
