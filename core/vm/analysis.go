@@ -16,8 +16,6 @@
 
 package vm
 
-import "fmt"
-
 // bitvec is a bit vector which maps bytes in a program.
 // An unset bit means the byte is an opcode, a set bit means
 // it's data (i.e. argument of PUSHxx).
@@ -65,6 +63,10 @@ func codeBitmap(code []byte) bitvec {
 
 type shadowmap []byte
 
+func (shadow *shadowmap) IsCode(pos uint16) bool {
+	return (*shadow)[pos]&0x80 == 0
+}
+
 func (shadow *shadowmap) set(pos uint64) {
 	(*shadow)[pos] |= 0x80
 }
@@ -98,7 +100,7 @@ func (shadow *shadowmap) isSameSubroutine(subStart, loc uint16) bool {
 //   at 'loc', possibly covering a span of 3 bytes. This is encoded into the
 //   7 least significant bits of the bytes in question.
 func shadowMap(code []byte) shadowmap {
-	shadow := make(shadowmap, len(code)+31)
+	shadow := make(shadowmap, len(code)+32)
 	// TODO: Check if we need to make it longer than the code, in case it
 	// ends on a PUSHX
 	curStart := uint16(0) // start of current subroutine
