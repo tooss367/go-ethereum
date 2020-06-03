@@ -49,6 +49,10 @@ type operation struct {
 	returns bool // determines whether the operations sets the return data content
 }
 
+func (op *operation) Info() (bool, int, int) {
+	return op.valid, op.minStack, op.maxStack
+}
+
 var (
 	frontierInstructionSet         = newFrontierInstructionSet()
 	homesteadInstructionSet        = newHomesteadInstructionSet()
@@ -57,6 +61,7 @@ var (
 	byzantiumInstructionSet        = newByzantiumInstructionSet()
 	constantinopleInstructionSet   = newConstantinopleInstructionSet()
 	istanbulInstructionSet         = newIstanbulInstructionSet()
+	AllInstructions                = newIstanbulInstructionSet()
 )
 
 // JumpTable contains the EVM opcodes supported at a given fork.
