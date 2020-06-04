@@ -63,8 +63,21 @@ func filter_b(contract *obj) (bool, error) {
 			break
 		}
 	}
+	instr := vm.AllInstructions
 	for it.Next() {
 		if it.Op() == vm.JUMPDEST {
+			if it.Next() {
+				// With a bit of luck, this is a 'dead' jump
+				next := it.OpStr()
+				op := instr[it.Op()]
+				valid, _, _ := op.Info()
+				if !valid {
+					//dead jump. Continue
+					continue
+				}
+				fmt.Fprintf(os.Stderr, "JUMP->BEGINSUB->JUMPDEST at %d, next op is %v\n", it.PC(), next)
+
+			}
 			return true, nil
 		}
 	}
@@ -85,7 +98,7 @@ func filter_c(contract *obj) (bool, error) {
 	var trace []string
 	for it.Next() {
 		op := instr[it.Op()]
-		trace = append(trace, it.Op().String())
+		trace = append(trace, it.OpStr())
 		valid, minStack, maxStack := op.Info()
 		if !valid {
 			t := strings.Join(trace, ",")
@@ -109,6 +122,12 @@ func filter_c(contract *obj) (bool, error) {
 		stackDepth += nPush
 		// here we lose sight of the control flow
 		if it.Op() == vm.JUMP || it.Op() == vm.JUMPI {
+
+			// We could also check if this is a 'static' jump, and if so,
+			// if it crosses a beginsub. It's complicated though, because we need
+			// to continue two tracks: the jump and the non-jump.
+			//fmt.Fprintf(os.Stderr, "doing %v at %v from %v %v (exiting)\n",
+			//	it.Op(), it.PC(), trace[len(trace)-2], trace[len(trace)-1])
 			break
 		}
 	}

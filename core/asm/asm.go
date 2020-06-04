@@ -99,6 +99,15 @@ func (it *instructionIterator) Arg() []byte {
 	return it.arg
 }
 
+// Returns the opcode of the current instruction.
+func (it *instructionIterator) OpStr() string{
+	if it.Arg() != nil{
+		return fmt.Sprintf("%v %v", it.Op(), it.Arg())
+	}
+	return fmt.Sprintf("%v", it.Op())
+}
+
+
 // Pretty-print all disassembled EVM instructions to stdout.
 func PrintDisassembled(code string) error {
 	script, err := hex.DecodeString(code)
