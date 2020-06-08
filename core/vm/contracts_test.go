@@ -140,12 +140,12 @@ func benchmarkPrecompiled(addr string, test precompiledTest, bench *testing.B) {
 		data = make([]byte, len(in))
 	)
 
+	copy(data, in)
 	bench.Run(fmt.Sprintf("%s-Gas=%d", test.Name, contract.Gas), func(bench *testing.B) {
 		bench.ReportAllocs()
 		bench.ResetTimer()
 		for i := 0; i < bench.N; i++ {
 			contract.Gas = reqGas
-			copy(data, in)
 			res, err = RunPrecompiledContract(p, data, contract)
 		}
 		bench.StopTimer()
@@ -237,8 +237,22 @@ func TestPrecompileBlake2FMalformedInput(t *testing.T) {
 		testPrecompiledFailure("09", test, t)
 	}
 }
-
 func TestPrecompiledEcrecover(t *testing.T) { testJson("ecRecover", "01", t) }
+
+
+func TestCommonSha256(t *testing.T){testJson("common-sha256", "02", t)}
+//func TestCommonRipeMD(t *testing.T){testJson("common-ripemd", "03", t)}
+func TestCommonBnAdd(t *testing.T){testJson("common-bnadd", "06", t)}
+func TestCommonBnMul(t *testing.T){testJson("common-bnmul", "07", t)}
+func TestCommonBnPair(t *testing.T){testJson("common-bnpair", "08", t)}
+func TestCommonBlake2f(t *testing.T){testJson("common-blake2f", "09", t)}
+
+func BenchmarkCommonSha256(b *testing.B){benchJson("common-sha256", "02", b)}
+//func BenchmarkCommonRipeMD(b *testing.B){benchJson("common-ripemd", "03", b)}
+func BenchmarkCommonBnAdd(b *testing.B){benchJson("common-bnadd", "06", b)}
+func BenchmarkCommonBnMul(b *testing.B){benchJson("common-bnmul", "07", b)}
+func BenchmarkCommonBnPair(b *testing.B){benchJson("common-bnpair", "08", b)}
+func BenchmarkCommonBlake2f(b *testing.B){benchJson("common-blake2f", "09", b)}
 
 func testJson(name, addr string, t *testing.T) {
 	tests, err := loadJson(name)
