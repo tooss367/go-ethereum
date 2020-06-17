@@ -20,7 +20,6 @@ package types
 import (
 	"encoding/binary"
 	"fmt"
-	"hash"
 	"io"
 	"math/big"
 	"reflect"
