@@ -17,7 +17,6 @@
 package rpc
 
 import (
-	"bufio"
 	"container/list"
 	"context"
 	crand "crypto/rand"
@@ -51,8 +50,8 @@ func NewID() ID {
 
 // randomIDGenerator returns a function generates a random IDs.
 func randomIDGenerator() func() ID {
-	seed, err := binary.ReadVarint(bufio.NewReader(crand.Reader))
-	if err != nil {
+	var seed int64
+	if err := binary.Read(crand.Reader,binary.LittleEndian, &seed); err != nil {
 		seed = int64(time.Now().Nanosecond())
 	}
 	var (
