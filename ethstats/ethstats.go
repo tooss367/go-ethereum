@@ -274,8 +274,6 @@ func (s *Service) loop() {
 				errTimer.Reset(10 * time.Second)
 				continue
 			}
-			go s.readLoop(conn)
-
 			// Send the initial stats so our node looks decent from the get go
 			if err = s.report(conn); err != nil {
 				log.Warn("Initial stats report failed", "err", err)
@@ -283,6 +281,7 @@ func (s *Service) loop() {
 				errTimer.Reset(0)
 				continue
 			}
+			go s.readLoop(conn)
 			// Keep sending status updates until the connection breaks
 			fullReport := time.NewTicker(15 * time.Second)
 
