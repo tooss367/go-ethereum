@@ -194,22 +194,31 @@ func (s *LesServer) Start() error {
 
 // Stop stops the LES service
 func (s *LesServer) Stop() error {
+	log.Info("Les server shutting down", "stage", 1)
 	close(s.closeCh)
+	log.Info("Les server shutting down", "stage", 2)
 
 	// Disconnect existing sessions.
 	// This also closes the gate for any new registrations on the peer set.
 	// sessions which are already established but not added to pm.peers yet
 	// will exit when they try to register.
 	s.peers.close()
+	log.Info("Les server shutting down", "stage", 3)
 
 	s.fcManager.Stop()
+	log.Info("Les server shutting down", "stage", 4)
 	s.costTracker.stop()
+	log.Info("Les server shutting down", "stage", 5)
 	s.handler.stop()
+	log.Info("Les server shutting down", "stage", 6)
 	s.clientPool.stop() // client pool should be closed after handler.
+	log.Info("Les server shutting down", "stage", 7)
 	s.servingQueue.stop()
 
+	log.Info("Les server shutting down", "stage", 8)
 	// Note, bloom trie indexer is closed by parent bloombits indexer.
 	s.chtIndexer.Close()
+	log.Info("Les server shutting down", "stage", 9)
 	s.wg.Wait()
 	log.Info("Les server stopped")
 
