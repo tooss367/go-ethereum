@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"hash"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -120,6 +121,7 @@ func (d *Downloader) runStateSync(s *stateSync) *stateSync {
 			deliverReq = finished[0]
 			deliverReqCh = s.deliver
 		}
+		atomic.StoreUint32(&s.throttle, uint32(len(finished)))
 
 		select {
 		// The stateSync lifecycle:
@@ -267,6 +269,8 @@ type stateSync struct {
 	err        error          // Any error hit during sync (set before completion)
 
 	root common.Hash
+
+	throttle uint32
 }
 
 // stateTask represents a single trie node download task, containing a set of
@@ -407,12 +411,22 @@ func (s *stateSync) commit(force bool) error {
 func (s *stateSync) assignTasks() {
 	// Iterate over all idle peers and try to assign them state fetches
 	peers, _ := s.d.peers.NodeDataIdlePeers()
+	// We'll use max 200 peers.
+	maxPeers := 200
+	pressure := atomic.LoadUint32(&s.throttle)
+	if pressure > 20 {
+		// limit to 3 peers if we need to throttle
+		maxPeers = 3
+	}
+	if len(peers) > maxPeers {
+		log.Info("statesync throttling in place", "pressure", pressure, "available peers", len(peers), "used", maxPeers)
+		peers = peers[:maxPeers]
+	}
 	for _, p := range peers {
 		// Assign a batch of fetches proportional to the estimated latency/bandwidth
 		cap := p.NodeDataCapacity(s.d.requestRTT())
 		req := &stateReq{peer: p, timeout: s.d.requestTTL()}
 		items := s.fillTasks(cap, req)
-
 		// If the peer was assigned tasks to fetch, send the network request
 		if len(items) > 0 {
 			req.peer.log.Trace("Requesting new batch of data", "type", "state", "count", len(items), "root", s.root)
