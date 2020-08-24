@@ -7,15 +7,17 @@ import http.server
 import socketserver,subprocess
 
 PORT=8550
-TARGET_DOMAIN= 'debian-work'
+TARGET_DOMAIN= '@default'
 
 class Dispatcher(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         post_data = self.rfile.read(int(self.headers['Content-Length']))
         p = subprocess.Popen(['/usr/bin/qrexec-client-vm',TARGET_DOMAIN,'qubes.Clefsign'],stdin=subprocess.PIPE, stdout=subprocess.PIPE)
         output = p.communicate(post_data)[0]
+        self.send_response(200)
+        self.end_headers()
         self.wfile.write(output)
-
+        print("<< ", output)
 
 with socketserver.TCPServer(("",PORT), Dispatcher) as httpd:
     print("Serving at port", PORT)
