@@ -596,11 +596,20 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		}
 		// Gather state data until the fetch or network limits is reached
 		var (
-			hash  common.Hash
-			bytes int
-			data  [][]byte
+			hash   common.Hash
+			bytes  int
+			data   [][]byte
+			count  int
+			misses int
 		)
 		for bytes < softResponseLimit && len(data) < downloader.MaxStateFetch {
+			count++
+			if count == 500 {
+				p.Log().Warn("Peer requesting lots of getnodedata",
+					"msgsize", uint64(msg.Size), "misses", misses, "remote",
+					p.Peer.String(), "name", p.Peer.Name())
+			}
+
 			// Retrieve the hash of the next state entry
 			if err := msgStream.Decode(&hash); err == rlp.EOL {
 				break
@@ -622,8 +631,16 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			if err == nil && len(entry) > 0 {
 				data = append(data, entry)
 				bytes += len(entry)
+			} else {
+				misses++
 			}
 		}
+		if count > 500 {
+			p.Log().Warn("Peer requested lots of getnodedata",
+				"msgsize", uint64(msg.Size), "misses", misses, "remote",
+				p.Peer.String(), "name", p.Peer.Name())
+		}
+
 		return p.SendNodeData(data)
 
 	case p.version >= eth63 && msg.Code == NodeDataMsg:
