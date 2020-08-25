@@ -41,8 +41,9 @@ type request struct {
 	code bool        // Whether this is a code entry
 
 	parents []*request // Parent state nodes referencing this entry (notify all upon completion)
-	depth   int        // Depth level within the trie the node is located to prioritise DFS
-	deps    int        // Number of dependencies before allowed to commit this node
+	depth   uint8      // Depth level within the trie the node is located to prioritise DFS
+	order   uint8
+	deps    int // Number of dependencies before allowed to commit this node
 
 	callback LeafCallback // Callback to invoke if a leaf node it reached on this branch
 }
@@ -107,7 +108,7 @@ func NewSync(root common.Hash, database ethdb.KeyValueReader, callback LeafCallb
 }
 
 // AddSubTrie registers a new trie to the sync code, rooted at the designated parent.
-func (s *Sync) AddSubTrie(root common.Hash, depth int, parent common.Hash, callback LeafCallback) {
+func (s *Sync) AddSubTrie(root common.Hash, depth uint8, parent common.Hash, callback LeafCallback) {
 	// Short circuit if the trie is empty or already known
 	if root == emptyRoot {
 		return
@@ -147,7 +148,7 @@ func (s *Sync) AddSubTrie(root common.Hash, depth int, parent common.Hash, callb
 // AddCodeEntry schedules the direct retrieval of a contract code that should not
 // be interpreted as a trie node, but rather accepted and stored into the database
 // as is.
-func (s *Sync) AddCodeEntry(hash common.Hash, depth int, parent common.Hash) {
+func (s *Sync) AddCodeEntry(hash common.Hash, depth uint8, parent common.Hash) {
 	// Short circuit if the entry is empty or already known
 	if hash == emptyState {
 		return
@@ -285,7 +286,7 @@ func (s *Sync) schedule(req *request) {
 	// is a trie node and code has same hash. In this case two elements
 	// with same hash and same or different depth will be pushed. But it's
 	// ok the worst case is the second response will be treated as duplicated.
-	s.queue.Push(req.hash, int64(req.depth))
+	s.queue.Push(req.hash, 256*int64(req.depth)+int64(req.order))
 }
 
 // children retrieves all the missing children of a state trie entry for future
@@ -294,7 +295,8 @@ func (s *Sync) children(req *request, object node) ([]*request, error) {
 	// Gather all the children of the node, irrelevant whether known or not
 	type child struct {
 		node  node
-		depth int
+		depth uint8
+		order uint8
 	}
 	var children []child
 
@@ -302,7 +304,8 @@ func (s *Sync) children(req *request, object node) ([]*request, error) {
 	case *shortNode:
 		children = []child{{
 			node:  node.Val,
-			depth: req.depth + len(node.Key),
+			depth: req.depth + uint8(len(node.Key)),
+			order: 16,
 		}}
 	case *fullNode:
 		for i := 0; i < 17; i++ {
@@ -310,6 +313,7 @@ func (s *Sync) children(req *request, object node) ([]*request, error) {
 				children = append(children, child{
 					node:  node.Children[i],
 					depth: req.depth + 1,
+					order: uint8(17 - i),
 				})
 			}
 		}
@@ -349,6 +353,7 @@ func (s *Sync) children(req *request, object node) ([]*request, error) {
 				hash:     hash,
 				parents:  []*request{req},
 				depth:    child.depth,
+				order:    child.order,
 				callback: req.callback,
 			})
 		}

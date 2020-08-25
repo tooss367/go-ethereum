@@ -413,7 +413,7 @@ func (s *stateSync) assignTasks(throttle bool) {
 	if throttle {
 		peers = peers[:1]
 		maxcap = 2
-		log.Info("Throttling statefetch to 1 peer only, max 2 items", "deliveries")
+		log.Info("Throttling statefetch to 1 peer only, max 2 items")
 	}
 	for _, p := range peers {
 		// Assign a batch of fetches proportional to the estimated latency/bandwidth
