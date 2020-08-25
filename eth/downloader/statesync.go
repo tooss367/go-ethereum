@@ -137,7 +137,6 @@ func (d *Downloader) runStateSync(s *stateSync) *stateSync {
 			copy(finished, finished[1:])
 			finished[len(finished)-1] = nil
 			finished = finished[:len(finished)-1]
-
 		// Handle incoming state packs:
 		case pack := <-d.stateCh:
 			// Discard any data not requested (or previously timed out)
@@ -329,13 +328,13 @@ func (s *stateSync) loop() (err error) {
 			err = cerr
 		}
 	}()
-
+	var deliveries = uint64(0)
 	// Keep assigning new tasks until the sync completes or aborts
 	for s.sched.Pending() > 0 {
 		if err = s.commit(false); err != nil {
 			return err
 		}
-		s.assignTasks()
+		s.assignTasks(deliveries < 8)
 		// Tasks assigned, wait for something to happen
 		select {
 		case <-newPeer:
@@ -379,6 +378,9 @@ func (s *stateSync) loop() (err error) {
 				log.Warn("Node data write error", "err", err)
 				return err
 			}
+			if delivered > 0{
+				deliveries++
+			}
 		}
 	}
 	return nil
@@ -404,15 +406,23 @@ func (s *stateSync) commit(force bool) error {
 
 // assignTasks attempts to assign new tasks to all idle peers, either from the
 // batch currently being retried, or fetching new data from the trie sync itself.
-func (s *stateSync) assignTasks() {
+func (s *stateSync) assignTasks(throttle bool) {
 	// Iterate over all idle peers and try to assign them state fetches
 	peers, _ := s.d.peers.NodeDataIdlePeers()
+	maxcap := MaxStateFetch
+	if throttle {
+		peers = peers[:1]
+		maxcap = 2
+		log.Info("Throttling statefetch to 1 peer only, max 2 items", "deliveries")
+	}
 	for _, p := range peers {
 		// Assign a batch of fetches proportional to the estimated latency/bandwidth
 		cap := p.NodeDataCapacity(s.d.requestRTT())
 		req := &stateReq{peer: p, timeout: s.d.requestTTL()}
+		if cap > maxcap {
+			cap = maxcap
+		}
 		items := s.fillTasks(cap, req)
-
 		// If the peer was assigned tasks to fetch, send the network request
 		if len(items) > 0 {
 			req.peer.log.Trace("Requesting new batch of data", "type", "state", "count", len(items), "root", s.root)
