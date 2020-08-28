@@ -18,7 +18,6 @@ package trie
 
 import (
 	"bytes"
-	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -352,7 +351,7 @@ func (st *StackTrie) hash() []byte {
 			st.db.insert(common.BytesToHash(ret), rlpSize, n)
 			// Commit if the size is above 1G
 			if st.db.dirtiesSize > 1073741824 {
-				if err := st.db.Commit(common.BytesToHash(ret), false); err != nil {
+				if err := st.db.Commit(common.BytesToHash(ret), false, nil); err != nil {
 					panic(err)
 				}
 			}
