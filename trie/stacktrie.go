@@ -22,8 +22,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/rlp"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -329,7 +329,6 @@ func (st *StackTrie) hash() []byte {
 			// into its parent.
 			return payload[start:pos]
 		}
-		n = fn
 		preimage.Write(payload[start:pos])
 	case extNode:
 		ch := st.children[0].hash()
