@@ -18,10 +18,12 @@ package trie
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/ethereum/go-ethereum/log"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -91,6 +93,23 @@ func (st *StackTrie) TryUpdate(key, value []byte) error {
 	}
 	st.insert(k[:len(k)-1], value)
 	return nil
+}
+
+func (st *StackTrie) Update(key, value []byte) {
+	if err := st.TryUpdate(key, value); err != nil {
+		log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
+	}
+}
+
+func (st *StackTrie) Reset() {
+	st.db = nil
+	st.key = nil
+	st.val = nil
+	for i := range st.children {
+		st.children[i] = nil
+	}
+	st.nodeType = emptyNode
+	st.keyOffset = 0
 }
 
 // Helper function that, given a full key, determines the index
