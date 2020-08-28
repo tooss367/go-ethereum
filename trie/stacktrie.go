@@ -58,8 +58,8 @@ func newLeaf(ko int, key, val []byte, db ethdb.KeyValueStore) *StackTrie {
 	}
 }
 
-func (st *StackTrie) convertToHash(ko int) {
-	st.keyOffset = ko
+func (st *StackTrie) convertToHash() {
+	st.keyOffset = 0
 	st.val = st.hash()
 	st.nodeType = hashedNode
 	st.key = nil
@@ -244,7 +244,7 @@ func (st *StackTrie) insert(key, value []byte) {
 		// free up some memory.
 		origIdx := st.key[diffidx]
 		p.children[origIdx] = newLeaf(diffidx+1, st.key, st.val, st.db)
-		p.children[origIdx].convertToHash(p.keyOffset + 1)
+		p.children[origIdx].convertToHash()
 
 		newIdx := key[diffidx+st.keyOffset]
 		p.children[newIdx] = newLeaf(p.keyOffset+1, key, value, st.db)
