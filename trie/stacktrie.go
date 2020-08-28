@@ -20,6 +20,7 @@ import (
 	"bytes"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/rlp"
 	"golang.org/x/crypto/sha3"
 )
@@ -34,18 +35,18 @@ type StackTrie struct {
 	keyOffset int            // offset of the key chunk inside a full key
 	children  [16]*StackTrie // list of children (for fullnodes and exts)
 
-	db *Database // Pointer to the commit db, can be nil
+	db ethdb.KeyValueStore // Pointer to the commit db, can be nil
 }
 
 // NewStackTrie allocates and initializes an empty trie.
-func NewStackTrie(db *Database) *StackTrie {
+func NewStackTrie(db ethdb.KeyValueStore) *StackTrie {
 	return &StackTrie{
 		nodeType: emptyNode,
 		db:       db,
 	}
 }
 
-func newLeaf(ko int, key, val []byte, db *Database) *StackTrie {
+func newLeaf(ko int, key, val []byte, db ethdb.KeyValueStore) *StackTrie {
 	return &StackTrie{
 		nodeType:  leafNode,
 		keyOffset: ko,
@@ -62,7 +63,7 @@ func (st *StackTrie) convertToHash(ko int) {
 	st.key = nil
 }
 
-func newExt(ko int, key []byte, child *StackTrie, db *Database) *StackTrie {
+func newExt(ko int, key []byte, child *StackTrie, db ethdb.KeyValueStore) *StackTrie {
 	st := &StackTrie{
 		nodeType:  extNode,
 		keyOffset: ko,
@@ -342,24 +343,11 @@ func (st *StackTrie) hash() []byte {
 	default:
 		panic("Invalid node type")
 	}
-	rlpSize := preimage.Len()
 	d.Write(preimage.Bytes())
 	ret := d.Sum(nil)
 
 	if st.db != nil {
-		if n != nil {
-			st.db.insert(common.BytesToHash(ret), rlpSize, n)
-			// Commit if the size is above 1G
-			if st.db.dirtiesSize > 1073741824 {
-				if err := st.db.Commit(common.BytesToHash(ret), false, nil); err != nil {
-					panic(err)
-				}
-			}
-		}
-		//if err := st.db.Put(append(secureKeyPrefix, ret...), preimage.Bytes()); err != nil {
-		//if err := st.db.Put(ret, preimage.Bytes()); err != nil {
-		//panic(fmt.Sprintf("error writing value to db: %v", err))
-		//}
+		st.db.Put(ret, preimage.Bytes())
 	}
 	return ret
 }
@@ -372,7 +360,7 @@ func (st *StackTrie) Hash() (h common.Hash) {
 }
 
 // Commit will commit the current node to database db
-func (st *StackTrie) Commit(db *Database) common.Hash {
+func (st *StackTrie) Commit(db ethdb.KeyValueStore) common.Hash {
 	oldDb := st.db
 	st.db = db
 	defer func() {

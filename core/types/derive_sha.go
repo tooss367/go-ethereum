@@ -23,7 +23,6 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
-// DerivableList is the interface which can derive the hash.
 type DerivableList interface {
 	Len() int
 	GetRlp(i int) []byte
@@ -42,7 +41,7 @@ func DeriveSha(list DerivableList, hasher Hasher) common.Hash {
 	for i := 0; i < list.Len(); i++ {
 		keybuf.Reset()
 		rlp.Encode(keybuf, uint(i))
-		hasher.Update(keybuf.Bytes(), list.GetRlp(i))
+		trie.Update(keybuf.Bytes(), list.GetRlp(i))
 	}
 	return hasher.Hash()
 }
