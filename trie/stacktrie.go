@@ -276,18 +276,10 @@ func (st *StackTrie) hash() []byte {
 	switch st.nodeType {
 	case branchNode:
 		fn := &fullNode{}
-		payload := [544]byte{}
-		pos := 3 // maximum header length given what we know
 		for i, v := range st.children {
 			if v != nil {
 				// Write a 32 byte list to the sponge
 				childhash := v.hash()
-				if len(childhash) == 32 {
-					payload[pos] = 128 + byte(len(childhash))
-					pos++
-				}
-				copy(payload[pos:pos+len(childhash)], childhash)
-				pos += len(childhash)
 				if len(childhash) < 32 {
 					fn.Children[i] = rawNode(childhash)
 
@@ -295,41 +287,13 @@ func (st *StackTrie) hash() []byte {
 					fn.Children[i] = hashNode(childhash)
 				}
 				st.children[i] = nil // Reclaim mem from subtree
-			} else {
-				// Write an empty list to the sponge
-				payload[pos] = 0x80
-				pos++
 			}
 		}
-		// Add an empty 17th value
-		payload[pos] = 0x80
-		pos++
 
-		// Compute the header, length size is either 0, 1 or 2 bytes since
-		// there are at least 17 empty list headers, and at most 16 hashes
-		// plus an empty header for the value.
-		var start int
-		if pos-3 < 56 {
-			payload[2] = 0xc0 + byte(pos-3)
-			start = 2
-		} else if pos-3 < 256 {
-			payload[2] = byte(pos - 3)
-			payload[1] = 0xf8
-			start = 1
-		} else {
-			payload[2] = byte(pos - 3)
-			payload[1] = byte((pos - 3) >> 8)
-			payload[0] = 0xf9
-			start = 0
+		err := rlp.Encode(&preimage, fn)
+		if err != nil {
+			panic(err)
 		}
-
-		// Do not hash if the payload length is less than 32 bytes
-		if pos-start < 32 {
-			// rlp len < 32, will be embedded
-			// into its parent.
-			return payload[start:pos]
-		}
-		preimage.Write(payload[start:pos])
 	case extNode:
 		ch := st.children[0].hash()
 		n = &shortNode{
@@ -341,9 +305,6 @@ func (st *StackTrie) hash() []byte {
 		if err != nil {
 			panic(err)
 		}
-		if preimage.Len() < 32 {
-			return preimage.Bytes()
-		}
 	case leafNode:
 		n = &shortNode{
 			Key: hexToCompact(append(st.key, byte(16))),
@@ -353,13 +314,13 @@ func (st *StackTrie) hash() []byte {
 		if err != nil {
 			panic(err)
 		}
-		if preimage.Len() < 32 {
-			return preimage.Bytes()
-		}
 	case emptyNode:
 		return emptyRoot[:]
 	default:
 		panic("Invalid node type")
+	}
+	if preimage.Len() < 32 {
+		return preimage.Bytes()
 	}
 	d.Write(preimage.Bytes())
 	ret := d.Sum(nil)
