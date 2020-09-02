@@ -17,7 +17,6 @@
 package trie
 
 import (
-	"bytes"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -268,8 +267,10 @@ func (st *StackTrie) hash() []byte {
 	if st.nodeType == hashedNode {
 		return st.val
 	}
+	h := newHasher(false)
+	h.tmp.Reset()
+	defer returnHasherToPool(h)
 
-	var preimage bytes.Buffer
 	var n node
 	switch st.nodeType {
 	case branchNode:
@@ -288,7 +289,7 @@ func (st *StackTrie) hash() []byte {
 			}
 		}
 
-		err := rlp.Encode(&preimage, fn)
+		err := rlp.Encode(&h.tmp, fn)
 		if err != nil {
 			panic(err)
 		}
@@ -298,7 +299,7 @@ func (st *StackTrie) hash() []byte {
 			Key: hexToCompact(st.key),
 			Val: hashNode(ch),
 		}
-		err := rlp.Encode(&preimage, n)
+		err := rlp.Encode(&h.tmp, n)
 		st.children[0] = nil // Reclaim mem from subtree
 		if err != nil {
 			panic(err)
@@ -308,7 +309,7 @@ func (st *StackTrie) hash() []byte {
 			Key: hexToCompact(append(st.key, byte(16))),
 			Val: valueNode(st.val),
 		}
-		err := rlp.Encode(&preimage, n)
+		err := rlp.Encode(&h.tmp, n)
 		if err != nil {
 			panic(err)
 		}
@@ -317,18 +318,20 @@ func (st *StackTrie) hash() []byte {
 	default:
 		panic("Invalid node type")
 	}
-	if preimage.Len() < 32 {
-		return preimage.Bytes()
+	if len(h.tmp) < 32 {
+		buf := make([]byte, len(h.tmp))
+		copy(buf, h.tmp)
+		return buf
 	}
 	ret := make([]byte, 32)
-	h := newHasher(false)
 	h.sha.Reset()
-	h.sha.Write(preimage.Bytes())
+	h.sha.Write(h.tmp)
 	h.sha.Read(ret)
-	returnHasherToPool(h)
 
 	if st.db != nil {
-		st.db.Put(ret, preimage.Bytes())
+		// TODO! Is it safe to Put the slice here?
+		// Do all db implementations copy the value provided?
+		st.db.Put(ret, h.tmp)
 	}
 	return ret
 }

@@ -138,7 +138,7 @@ func BenchmarkDeriveSha200(b *testing.B) {
 			got = types.DeriveSha(txs, NewStackTrie(nil))
 		}
 	})
-	if got != exp{
+	if got != exp {
 		b.Errorf("got %x exp %x", got, exp)
 	}
 }
