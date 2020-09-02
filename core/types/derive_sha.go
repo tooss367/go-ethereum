@@ -38,7 +38,17 @@ type Hasher interface {
 func DeriveSha(list DerivableList, hasher Hasher) common.Hash {
 	hasher.Reset()
 	keybuf := new(bytes.Buffer)
-	for i := 0; i < list.Len(); i++ {
+	for i := 1; i < list.Len() && i < 0x7f; i++ {
+		keybuf.Reset()
+		rlp.Encode(keybuf, uint(i))
+		hasher.Update(keybuf.Bytes(), list.GetRlp(i))
+	}
+	if list.Len() > 0 {
+		keybuf.Reset()
+		rlp.Encode(keybuf, uint(0))
+		hasher.Update(keybuf.Bytes(), list.GetRlp(0))
+	}
+	for i := 0x80; i < list.Len(); i++ {
 		keybuf.Reset()
 		rlp.Encode(keybuf, uint(i))
 		hasher.Update(keybuf.Bytes(), list.GetRlp(i))
