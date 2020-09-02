@@ -24,7 +24,6 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
-	"golang.org/x/crypto/sha3"
 )
 
 // StackTrie is a trie implementation that expects keys to be inserted
@@ -272,7 +271,6 @@ func (st *StackTrie) hash() []byte {
 
 	var preimage bytes.Buffer
 	var n node
-	d := sha3.NewLegacyKeccak256()
 	switch st.nodeType {
 	case branchNode:
 		fn := &fullNode{}
@@ -322,8 +320,12 @@ func (st *StackTrie) hash() []byte {
 	if preimage.Len() < 32 {
 		return preimage.Bytes()
 	}
-	d.Write(preimage.Bytes())
-	ret := d.Sum(nil)
+	ret := make([]byte, 32)
+	h := newHasher(false)
+	h.sha.Reset()
+	h.sha.Write(preimage.Bytes())
+	h.sha.Read(ret)
+	returnHasherToPool(h)
 
 	if st.db != nil {
 		st.db.Put(ret, preimage.Bytes())
