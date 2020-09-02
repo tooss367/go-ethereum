@@ -38,6 +38,11 @@ type Hasher interface {
 func DeriveSha(list DerivableList, hasher Hasher) common.Hash {
 	hasher.Reset()
 	keybuf := new(bytes.Buffer)
+
+	// StackTrie requires values to be inserted in increasing
+	// hash order, which is not the order that `list` provides
+	// hashes in. This insertion sequence ensures that the
+	// order is correct.
 	for i := 1; i < list.Len() && i < 0x7f; i++ {
 		keybuf.Reset()
 		rlp.Encode(keybuf, uint(i))
