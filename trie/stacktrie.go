@@ -277,14 +277,14 @@ func (st *StackTrie) hash() []byte {
 	case branchNode:
 		var nodes [17]node
 		for i, child := range st.children {
-			if child == nil{
+			if child == nil {
 				nodes[i] = nilValueNode
 				continue
 			}
 			if childhash := child.hash(); len(childhash) < 32 {
 				nodes[i] = rawNode(childhash)
-			}else{
-				nodes[i]= hashNode(childhash)
+			} else {
+				nodes[i] = hashNode(childhash)
 			}
 		}
 		nodes[16] = nilValueNode
