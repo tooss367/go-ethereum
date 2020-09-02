@@ -281,6 +281,7 @@ func (st *StackTrie) hash() []byte {
 				nodes[i] = nilValueNode
 				continue
 			}
+			st.children[i] = nil // Reclaim mem from subtree
 			if childhash := child.hash(); len(childhash) < 32 {
 				nodes[i] = rawNode(childhash)
 			} else {
