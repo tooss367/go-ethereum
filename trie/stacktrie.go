@@ -275,24 +275,23 @@ func (st *StackTrie) hash() []byte {
 
 	switch st.nodeType {
 	case branchNode:
-		fn := &fullNode{}
-		for i, v := range st.children {
-			if v != nil {
-				// Write a 32 byte list to the sponge
-				childhash := v.hash()
-				if len(childhash) < 32 {
-					fn.Children[i] = rawNode(childhash)
-
-				} else {
-					fn.Children[i] = hashNode(childhash)
-				}
-				st.children[i] = nil // Reclaim mem from subtree
+		var nodes [17]node
+		for i, child := range st.children {
+			if child == nil{
+				nodes[i] = nilValueNode
+				continue
+			}
+			if childhash := child.hash(); len(childhash) < 32 {
+				nodes[i] = rawNode(childhash)
+			}else{
+				nodes[i]= hashNode(childhash)
 			}
 		}
+		nodes[16] = nilValueNode
 		h = newHasher(false)
 		defer returnHasherToPool(h)
 		h.tmp.Reset()
-		if err := rlp.Encode(&h.tmp, fn); err != nil {
+		if err := rlp.Encode(&h.tmp, nodes); err != nil {
 			panic(err)
 		}
 	case extNode:
