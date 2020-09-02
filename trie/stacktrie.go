@@ -267,11 +267,12 @@ func (st *StackTrie) hash() []byte {
 	if st.nodeType == hashedNode {
 		return st.val
 	}
-	h := newHasher(false)
-	h.tmp.Reset()
-	defer returnHasherToPool(h)
-
+	// The 'hasher' is taken from a pool, but we don't actually
+	// claim an instance until all children are done with their hashing,
+	// and we actually need one
+	var h *hasher
 	var n node
+
 	switch st.nodeType {
 	case branchNode:
 		fn := &fullNode{}
@@ -288,9 +289,10 @@ func (st *StackTrie) hash() []byte {
 				st.children[i] = nil // Reclaim mem from subtree
 			}
 		}
-
-		err := rlp.Encode(&h.tmp, fn)
-		if err != nil {
+		h = newHasher(false)
+		defer returnHasherToPool(h)
+		h.tmp.Reset()
+		if err := rlp.Encode(&h.tmp, fn); err != nil {
 			panic(err)
 		}
 	case extNode:
@@ -299,18 +301,22 @@ func (st *StackTrie) hash() []byte {
 			Key: hexToCompact(st.key),
 			Val: hashNode(ch),
 		}
-		err := rlp.Encode(&h.tmp, n)
-		st.children[0] = nil // Reclaim mem from subtree
-		if err != nil {
+		h = newHasher(false)
+		defer returnHasherToPool(h)
+		h.tmp.Reset()
+		if err := rlp.Encode(&h.tmp, n); err != nil {
 			panic(err)
 		}
+		st.children[0] = nil // Reclaim mem from subtree
 	case leafNode:
 		n = &shortNode{
 			Key: hexToCompact(append(st.key, byte(16))),
 			Val: valueNode(st.val),
 		}
-		err := rlp.Encode(&h.tmp, n)
-		if err != nil {
+		h = newHasher(false)
+		defer returnHasherToPool(h)
+		h.tmp.Reset()
+		if err := rlp.Encode(&h.tmp, n); err != nil {
 			panic(err)
 		}
 	case emptyNode:
