@@ -1,6 +1,10 @@
 package trie
 
 import (
+	"bytes"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -68,5 +72,73 @@ func TestValLength56(t *testing.T) {
 
 	if nt.Hash() != st.Hash() {
 		t.Fatalf("error %x != %x", st.Hash(), nt.Hash())
+	}
+}
+
+func genTxs(num uint64) (types.Transactions, error) {
+	key, err := crypto.HexToECDSA("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	if err != nil {
+		return nil, err
+	}
+	var addr = crypto.PubkeyToAddress(key.PublicKey)
+	newTx := func(i uint64) (*types.Transaction, error) {
+		signer := types.NewEIP155Signer(big.NewInt(18))
+		tx, err := types.SignTx(types.NewTransaction(i, addr, new(big.Int), 0, new(big.Int).SetUint64(10000000), nil), signer, key)
+		return tx, err
+	}
+	var txs types.Transactions
+	for i := uint64(0); i < num; i++ {
+		tx, err := newTx(i)
+		if err != nil {
+			return nil, err
+		}
+		txs = append(txs, tx)
+	}
+	return txs, nil
+}
+
+func TestDeriveSha(t *testing.T) {
+	txs, err := genTxs(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for len(txs) < 1000 {
+		exp := types.DeriveSha(txs, newEmpty())
+		got := types.DeriveSha(txs, NewStackTrie(nil))
+		if !bytes.Equal(got[:], exp[:]) {
+			t.Fatalf("%d txs: got %x exp %x", len(txs), got, exp)
+		}
+		newTxs, err := genTxs(uint64(len(txs) + 1))
+		if err != nil {
+			t.Fatal(err)
+		}
+		txs = append(txs, newTxs...)
+	}
+}
+
+func BenchmarkDeriveSha200(b *testing.B) {
+	txs, err := genTxs(200)
+	if err != nil {
+		b.Fatal(err)
+	}
+	var exp common.Hash
+	var got common.Hash
+	b.Run("std_trie", func(b *testing.B) {
+		b.ResetTimer()
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			exp = types.DeriveSha(txs, newEmpty())
+		}
+	})
+
+	b.Run("stack_trie", func(b *testing.B) {
+		b.ResetTimer()
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			got = types.DeriveSha(txs, NewStackTrie(nil))
+		}
+	})
+	if got != exp{
+		b.Errorf("got %x exp %x", got, exp)
 	}
 }
