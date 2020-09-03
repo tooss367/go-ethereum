@@ -18,12 +18,30 @@ package trie
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
 )
+
+var stPool = sync.Pool{
+	New: func() interface{} {
+		return NewStackTrie(nil)
+	},
+}
+
+func stackTrieFromPool(db ethdb.KeyValueStore) *StackTrie {
+	st := stPool.Get().(*StackTrie)
+	st.db = db
+	return st
+}
+
+func returnToPool(st *StackTrie) {
+	st.Reset()
+	stPool.Put(st)
+}
 
 // StackTrie is a trie implementation that expects keys to be inserted
 // in order. Once it determines that a subtree will no longer be inserted
@@ -47,13 +65,12 @@ func NewStackTrie(db ethdb.KeyValueStore) *StackTrie {
 }
 
 func newLeaf(ko int, key, val []byte, db ethdb.KeyValueStore) *StackTrie {
-	return &StackTrie{
-		nodeType:  leafNode,
-		keyOffset: ko,
-		key:       key[ko:],
-		val:       val,
-		db:        db,
-	}
+	st := stackTrieFromPool(db)
+	st.nodeType = leafNode
+	st.keyOffset = ko
+	st.key = key[ko:]
+	st.val = val
+	return st
 }
 
 func (st *StackTrie) convertToHash() {
@@ -64,12 +81,10 @@ func (st *StackTrie) convertToHash() {
 }
 
 func newExt(ko int, key []byte, child *StackTrie, db ethdb.KeyValueStore) *StackTrie {
-	st := &StackTrie{
-		nodeType:  extNode,
-		keyOffset: ko,
-		key:       key[ko:],
-		db:        db,
-	}
+	st := stackTrieFromPool(db)
+	st.nodeType = extNode
+	st.keyOffset = ko
+	st.key = key[ko:]
 	st.children[0] = child
 	return st
 }
@@ -126,10 +141,7 @@ func (st *StackTrie) insert(key, value []byte) {
 	switch st.nodeType {
 	case branchNode: /* Branch */
 		idx := int(key[st.keyOffset])
-		if st.children[idx] == nil {
-			st.children[idx] = NewStackTrie(st.db)
-			st.children[idx].keyOffset = st.keyOffset + 1
-		}
+		// Unresolve elder siblings
 		for i := idx - 1; i >= 0; i-- {
 			if st.children[i] != nil {
 				if st.children[i].nodeType != hashedNode {
@@ -137,10 +149,13 @@ func (st *StackTrie) insert(key, value []byte) {
 					st.children[i].key = nil
 					st.children[i].nodeType = hashedNode
 				}
-
 				break
 			}
-
+		}
+		// Add new child
+		if st.children[idx] == nil {
+			st.children[idx] = stackTrieFromPool(st.db)
+			st.children[idx].keyOffset = st.keyOffset + 1
 		}
 		st.children[idx].insert(key, value)
 	case extNode: /* Ext */
@@ -183,7 +198,7 @@ func (st *StackTrie) insert(key, value []byte) {
 			// the common prefix is at least one byte
 			// long, insert a new intermediate branch
 			// node.
-			st.children[0] = NewStackTrie(st.db)
+			st.children[0] = stackTrieFromPool(st.db)
 			st.children[0].nodeType = branchNode
 			st.children[0].keyOffset = st.keyOffset + diffidx
 			p = st.children[0]
@@ -271,22 +286,22 @@ func (st *StackTrie) hash() []byte {
 	// claim an instance until all children are done with their hashing,
 	// and we actually need one
 	var h *hasher
-	var n node
 
 	switch st.nodeType {
 	case branchNode:
-		var nodes [17]node
+		var nodes [17][]byte
 		for i, child := range st.children {
 			if child == nil {
 				nodes[i] = nilValueNode
 				continue
 			}
-			st.children[i] = nil // Reclaim mem from subtree
 			if childhash := child.hash(); len(childhash) < 32 {
 				nodes[i] = rawNode(childhash)
 			} else {
 				nodes[i] = hashNode(childhash)
 			}
+			st.children[i] = nil // Reclaim mem from subtree
+			returnToPool(child)
 		}
 		nodes[16] = nilValueNode
 		h = newHasher(false)
@@ -296,26 +311,28 @@ func (st *StackTrie) hash() []byte {
 			panic(err)
 		}
 	case extNode:
-		ch := st.children[0].hash()
-		n = &shortNode{
-			Key: hexToCompact(st.key),
-			Val: hashNode(ch),
-		}
 		h = newHasher(false)
 		defer returnHasherToPool(h)
 		h.tmp.Reset()
+		// This format is easier on memory than a shortNode
+		n := [][]byte{
+			hexToCompact(st.key),
+			st.children[0].hash(),
+		}
 		if err := rlp.Encode(&h.tmp, n); err != nil {
 			panic(err)
 		}
+		returnToPool(st.children[0])
 		st.children[0] = nil // Reclaim mem from subtree
 	case leafNode:
-		n = &shortNode{
-			Key: hexToCompact(append(st.key, byte(16))),
-			Val: valueNode(st.val),
-		}
 		h = newHasher(false)
 		defer returnHasherToPool(h)
 		h.tmp.Reset()
+		// This format is easier on memory than a shortNode
+		n := [][]byte{
+			hexToCompact(append(st.key, byte(16))),
+			st.val,
+		}
 		if err := rlp.Encode(&h.tmp, n); err != nil {
 			panic(err)
 		}
