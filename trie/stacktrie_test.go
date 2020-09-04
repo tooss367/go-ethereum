@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/rlp"
 	"math/big"
 	mrand "math/rand"
 	"testing"
@@ -184,7 +185,7 @@ func printList(l types.DerivableList) {
 	fmt.Printf("},\n")
 }
 
-func TestDeriveShaLongtime(t *testing.T) {
+func xTestDeriveShaLongtime(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		exp := types.DeriveSha(newDummy(i), newEmpty())
 		got := types.DeriveSha(newDummy(i), NewStackTrie(nil))
@@ -309,5 +310,21 @@ func TestDerivableList(t *testing.T) {
 		if !bytes.Equal(got[:], exp[:]) {
 			t.Fatalf("case %d: got %x exp %x", i, got, exp)
 		}
+	}
+}
+
+// Verify key ordering - todo delete thisq
+func xTestFoo(t *testing.T) {
+	for i := 1; i <= 0x7f; i++ {
+		d, _ := rlp.EncodeToBytes(uint(i))
+		fmt.Printf("i %d => d: %x\n", i, d)
+	}
+	i := 0
+	d, _ := rlp.EncodeToBytes(uint(i))
+	fmt.Printf("i %d => d: %x\n", i, d)
+
+	for i := 0x80; i < 0x88; i++ {
+		d, _ := rlp.EncodeToBytes(uint(i))
+		fmt.Printf("i %d => d: %x\n", i, d)
 	}
 }
