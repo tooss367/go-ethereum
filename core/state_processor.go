@@ -86,6 +86,10 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 // for the transaction, gas used and an error if the transaction failed,
 // indicating the block was invalid.
 func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
+	if !config.IsYoloV2(header.Number) && tx.Type() != types.LegacyTxId {
+		return nil, ErrTxTypeInvalid
+	}
+
 	msg, err := tx.AsMessage(types.MakeSigner(config, header.Number))
 	if err != nil {
 		return nil, err
@@ -105,6 +109,14 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 		for _, addr := range vmenv.ActivePrecompiles() {
 			statedb.AddAddressToAccessList(addr)
 		}
+		if msg.AccessList() != nil {
+			for _, el := range *msg.AccessList() {
+				statedb.AddAddressToAccessList(*el.Address)
+				for _, key := range el.StorageKeys {
+					statedb.AddSlotToAccessList(*el.Address, *key)
+				}
+			}
+		}
 	}
 
 	// Apply the transaction to the current state (included in the env)
@@ -123,7 +135,12 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 
 	// Create a new receipt for the transaction, storing the intermediate root and gas used by the tx
 	// based on the eip phase, we're passing whether the root touch-delete accounts.
-	receipt := types.NewReceipt(root, result.Failed(), *usedGas)
+	var receipt *types.Receipt
+	if config.IsYoloV2(header.Number) {
+		receipt = types.NewEIP2718Receipt(tx.Type(), root, result.Failed(), *usedGas)
+	} else {
+		receipt = types.NewReceipt(root, result.Failed(), *usedGas)
+	}
 	receipt.TxHash = tx.Hash()
 	receipt.GasUsed = result.UsedGas
 	// if the transaction created a contract, store the creation address in the receipt.
