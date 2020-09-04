@@ -75,7 +75,7 @@ func newLeaf(ko int, key, val []byte, db ethdb.KeyValueStore) *StackTrie {
 
 func (st *StackTrie) convertToHash() {
 	st.keyOffset = 0
-	st.val = st.hash()
+	st.val = st.hash(false)
 	st.nodeType = hashedNode
 	st.key = nil
 }
@@ -145,7 +145,7 @@ func (st *StackTrie) insert(key, value []byte) {
 		for i := idx - 1; i >= 0; i-- {
 			if st.children[i] != nil {
 				if st.children[i].nodeType != hashedNode {
-					st.children[i].val = st.children[i].hash()
+					st.children[i].val = st.children[i].hash(false)
 					st.children[i].key = nil
 					st.children[i].nodeType = hashedNode
 				}
@@ -204,7 +204,7 @@ func (st *StackTrie) insert(key, value []byte) {
 			p = st.children[0]
 		}
 
-		n.val = n.hash()
+		n.val = n.hash(false)
 		n.nodeType = hashedNode
 		n.key = nil
 
@@ -277,7 +277,7 @@ func (st *StackTrie) insert(key, value []byte) {
 	}
 }
 
-func (st *StackTrie) hash() []byte {
+func (st *StackTrie) hash(force bool) []byte {
 	/* Shortcut if node is already hashed */
 	if st.nodeType == hashedNode {
 		return st.val
@@ -295,7 +295,7 @@ func (st *StackTrie) hash() []byte {
 				nodes[i] = nilValueNode
 				continue
 			}
-			if childhash := child.hash(); len(childhash) < 32 {
+			if childhash := child.hash(false); len(childhash) < 32 {
 				nodes[i] = rawNode(childhash)
 			} else {
 				nodes[i] = hashNode(childhash)
@@ -317,7 +317,7 @@ func (st *StackTrie) hash() []byte {
 		// This format is easier on memory than a shortNode
 		n := [][]byte{
 			hexToCompact(st.key),
-			st.children[0].hash(),
+			st.children[0].hash(false),
 		}
 		if err := rlp.Encode(&h.tmp, n); err != nil {
 			panic(err)
@@ -341,7 +341,7 @@ func (st *StackTrie) hash() []byte {
 	default:
 		panic("Invalid node type")
 	}
-	if len(h.tmp) < 32 {
+	if !force && len(h.tmp) < 32 {
 		buf := make([]byte, len(h.tmp))
 		copy(buf, h.tmp)
 		return buf
@@ -361,7 +361,7 @@ func (st *StackTrie) hash() []byte {
 
 // Hash returns the hash of the current node
 func (st *StackTrie) Hash() (h common.Hash) {
-	st.val = st.hash()
+	st.val = st.hash(true)
 	st.nodeType = hashedNode
 	return common.BytesToHash(st.val)
 }
@@ -373,6 +373,6 @@ func (st *StackTrie) Commit(db ethdb.KeyValueStore) common.Hash {
 	defer func() {
 		st.db = oldDb
 	}()
-	h := common.BytesToHash(st.hash())
+	h := common.BytesToHash(st.hash(true))
 	return h
 }
