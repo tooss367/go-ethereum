@@ -73,11 +73,16 @@ func newLeaf(ko int, key, val []byte, db ethdb.KeyValueStore) *StackTrie {
 	return st
 }
 
-func (st *StackTrie) convertToHash() {
+func (st *StackTrie) convertToHash() bool {
 	st.keyOffset = 0
 	st.val = st.hash(false)
 	st.nodeType = hashedNode
 	st.key = nil
+	if len(st.val) < 32 {
+		// hashed ok?
+		return false
+	}
+	return true
 }
 
 func newExt(ko int, key []byte, child *StackTrie, db ethdb.KeyValueStore) *StackTrie {
@@ -140,6 +145,7 @@ func (st *StackTrie) getDiffIndex(key []byte) int {
 func (st *StackTrie) insert(key, value []byte) {
 	switch st.nodeType {
 	case branchNode: /* Branch */
+		fmt.Printf("inserting into branchnode\n")
 		idx := int(key[st.keyOffset])
 		// Unresolve elder siblings
 		for i := idx - 1; i >= 0; i-- {
@@ -159,6 +165,7 @@ func (st *StackTrie) insert(key, value []byte) {
 		}
 		st.children[idx].insert(key, value)
 	case extNode: /* Ext */
+		fmt.Printf("inserting into extnode\n")
 		// Compare both key chunks and see where they differ
 		diffidx := st.getDiffIndex(key)
 
@@ -219,6 +226,7 @@ func (st *StackTrie) insert(key, value []byte) {
 		st.key = st.key[:diffidx]
 
 	case leafNode: /* Leaf */
+		fmt.Printf("inserting into leafnode\n")
 		// Compare both key chunks and see where they differ
 		diffidx := st.getDiffIndex(key)
 
@@ -237,11 +245,13 @@ func (st *StackTrie) insert(key, value []byte) {
 		// Otherwise, create that
 		var p *StackTrie
 		if diffidx == 0 {
+			fmt.Printf("leaf into branch\n")
 			// Convert current leaf into a branch
 			st.nodeType = branchNode
 			p = st
 			st.children[0] = nil
 		} else {
+			fmt.Printf("leaf into ext\n")
 			// Convert current node into an ext,
 			// and insert a child branch node.
 			st.nodeType = extNode
@@ -257,7 +267,9 @@ func (st *StackTrie) insert(key, value []byte) {
 		// free up some memory.
 		origIdx := st.key[diffidx]
 		p.children[origIdx] = newLeaf(diffidx+1, st.key, st.val, st.db)
-		p.children[origIdx].convertToHash()
+		if !p.children[origIdx].convertToHash() {
+			p.children[origIdx] = newLeaf(diffidx+1, st.key, st.val, st.db)
+		}
 
 		newIdx := key[diffidx+st.keyOffset]
 		p.children[newIdx] = newLeaf(p.keyOffset+1, key, value, st.db)
@@ -289,25 +301,31 @@ func (st *StackTrie) hash(force bool) []byte {
 
 	switch st.nodeType {
 	case branchNode:
-		var nodes [17][]byte
-		for i, child := range st.children {
-			if child == nil {
-				nodes[i] = nilValueNode
+		fmt.Printf("hashing branchnode\n")
+		fn := &fullNode{}
+		for i, v := range st.children {
+			if v == nil {
 				continue
 			}
-			if childhash := child.hash(false); len(childhash) < 32 {
-				nodes[i] = rawNode(childhash)
+			// Write a 32 byte list to the sponge
+			childhash := v.hash(false)
+			if len(childhash) == 32 { // hashed ok
+				fn.Children[i] = hashNode(childhash)
 			} else {
-				nodes[i] = hashNode(childhash)
+				child := st.children[i]
+				k := hexToCompact(append(child.key, byte(16)))
+				fn.Children[i] = &shortNode{
+					Key: k,
+					Val: valueNode(child.val),
+				}
 			}
+			returnToPool(st.children[i])
 			st.children[i] = nil // Reclaim mem from subtree
-			returnToPool(child)
 		}
-		nodes[16] = nilValueNode
 		h = newHasher(false)
 		defer returnHasherToPool(h)
 		h.tmp.Reset()
-		if err := rlp.Encode(&h.tmp, nodes); err != nil {
+		if err := rlp.Encode(&h.tmp, fn); err != nil {
 			panic(err)
 		}
 	case extNode:
@@ -344,13 +362,15 @@ func (st *StackTrie) hash(force bool) []byte {
 	if !force && len(h.tmp) < 32 {
 		buf := make([]byte, len(h.tmp))
 		copy(buf, h.tmp)
+		//fmt.Printf("hash aborted, output:%x input %x\n", buf, h.tmp)
 		return buf
 	}
 	ret := make([]byte, 32)
 	h.sha.Reset()
 	h.sha.Write(h.tmp)
 	h.sha.Read(ret)
-
+	//fmt.Printf("hash: %x, input %x\n", ret, h.tmp)
+	//dumpRlp(h.tmp)
 	if st.db != nil {
 		// TODO! Is it safe to Put the slice here?
 		// Do all db implementations copy the value provided?
@@ -376,3 +396,12 @@ func (st *StackTrie) Commit(db ethdb.KeyValueStore) common.Hash {
 	h := common.BytesToHash(st.hash(true))
 	return h
 }
+
+//func dumpRlp(input []byte) {
+//	var x []interface{}
+//	rlp.DecodeBytes(input, &x)
+//	for i, v := range x {
+//		fmt.Printf("%d: %x\n", i, v)
+//	}
+//	fmt.Println("")
+//}
