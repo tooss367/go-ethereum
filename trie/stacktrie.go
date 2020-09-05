@@ -289,23 +289,26 @@ func (st *StackTrie) hash() []byte {
 
 	switch st.nodeType {
 	case branchNode:
-		fn := &fullNode{}
-		for i, v := range st.children {
-			if v != nil {
-				childhash := v.hash()
-				if len(childhash) < 32 {
-					fmt.Printf("raw child %x\n", childhash)
-					fn.Children[i] = rawNode(childhash)
-				} else {
-					fn.Children[i] = hashNode(childhash)
-				}
-				st.children[i] = nil // Reclaim mem from subtree
+		var nodes [17]node
+		for i, child := range st.children {
+			if child == nil {
+				nodes[i] = nilValueNode
+				continue
 			}
+			childhash := child.hash()
+			if len(childhash) < 32 {
+				nodes[i] = rawNode(childhash)
+			} else {
+				nodes[i] = hashNode(childhash)
+			}
+			st.children[i] = nil // Reclaim mem from subtree
+			returnToPool(child)
 		}
+		nodes[16] = nilValueNode
 		h = newHasher(false)
 		defer returnHasherToPool(h)
 		h.tmp.Reset()
-		if err := rlp.Encode(&h.tmp, fn); err != nil {
+		if err := rlp.Encode(&h.tmp, nodes); err != nil {
 			panic(err)
 		}
 	case extNode:
