@@ -369,7 +369,7 @@ func (st *StackTrie) Hash() (h common.Hash) {
 		h := newHasher(false)
 		defer returnHasherToPool(h)
 		h.sha.Reset()
-		h.sha.Write(h.tmp)
+		h.sha.Write(st.val)
 		h.sha.Read(ret)
 		return common.BytesToHash(ret)
 	}
