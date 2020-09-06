@@ -157,7 +157,7 @@ func newDummy(seed int) *dummyDerivableList {
 	d := &dummyDerivableList{}
 	src := mrand.NewSource(int64(seed))
 	// don't use lists longer than 4K items
-	d.len = int(src.Int63() & 0x000F)
+	d.len = int(src.Int63() & 0x0FFF)
 	d.seed = seed
 	return d
 }
@@ -166,7 +166,7 @@ func (d *dummyDerivableList) Len() int {
 }
 func (d *dummyDerivableList) GetRlp(i int) []byte {
 	src := mrand.NewSource(int64(d.seed + i))
-	// max item size 4k, at least 1 byte per item
+	// max item size 256, at least 1 byte per item
 	size := 1 + src.Int63()&0x00FF
 	data := make([]byte, size)
 	_, err := mrand.New(src).Read(data)
@@ -186,16 +186,14 @@ func printList(l types.DerivableList) {
 	fmt.Printf("},\n")
 }
 
-func xTestDeriveShaLongtime(t *testing.T) {
+func TestFuzzDeriveSha(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		exp := types.DeriveSha(newDummy(i), newEmpty())
 		got := types.DeriveSha(newDummy(i), NewStackTrie(nil))
 		if !bytes.Equal(got[:], exp[:]) {
 			printList(newDummy(i))
-
 			t.Fatalf("seed %d: got %x exp %x", i, got, exp)
 		}
-
 	}
 }
 
@@ -231,7 +229,7 @@ func TestDerivableList(t *testing.T) {
 			"0xca410605310cdc3bb8d4977ae4f0143df54a724ed873457e2272f39d66e0460e971d9d",
 		},
 	}
-	for i, tc := range tcs {
+	for i, tc := range tcs[1:] {
 		exp := types.DeriveSha(newFlatList(tc), newEmpty())
 		got := types.DeriveSha(newFlatList(tc), NewStackTrie(nil))
 		if !bytes.Equal(got[:], exp[:]) {
