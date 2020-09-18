@@ -62,25 +62,27 @@ func TestState(t *testing.T) {
 	} {
 		st.walk(t, dir, func(t *testing.T, name string, test *StateTest) {
 			for _, subtest := range test.Subtests() {
+				if subtest.Fork != "Istanbul"{
+					continue
+				}
 				subtest := subtest
 				key := fmt.Sprintf("%s/%d", subtest.Fork, subtest.Index)
 				name := name + "/" + key
-
 				t.Run(key+"/trie", func(t *testing.T) {
 					withTrace(t, test.gasLimit(subtest), func(vmconfig vm.Config) error {
 						_, _, err := test.Run(subtest, vmconfig, false)
 						return st.checkFailure(t, name+"/trie", err)
 					})
 				})
-				t.Run(key+"/snap", func(t *testing.T) {
-					withTrace(t, test.gasLimit(subtest), func(vmconfig vm.Config) error {
-						snaps, statedb, err := test.Run(subtest, vmconfig, true)
-						if _, err := snaps.Journal(statedb.IntermediateRoot(false)); err != nil {
-							return err
-						}
-						return st.checkFailure(t, name+"/snap", err)
-					})
-				})
+				//t.Run(key+"/snap", func(t *testing.T) {
+				//	withTrace(t, test.gasLimit(subtest), func(vmconfig vm.Config) error {
+				//		snaps, statedb, err := test.Run(subtest, vmconfig, true)
+				//		if _, err := snaps.Journal(statedb.IntermediateRoot(false)); err != nil {
+				//			return err
+				//		}
+				//		return st.checkFailure(t, name+"/snap", err)
+				//	})
+				//})
 			}
 		})
 	}
@@ -98,8 +100,9 @@ func withTrace(t *testing.T, gasLimit uint64, test func(vm.Config) error) {
 	}
 
 	// Test failed, re-run with tracing enabled.
+	fmt.Printf("YOLOv2 err: %v: %v\n", t.Name(), err)
 	t.Error(err)
-	if gasLimit > traceErrorLimit {
+	if true || gasLimit > traceErrorLimit {
 		t.Log("gas limit too high for EVM trace")
 		return
 	}
