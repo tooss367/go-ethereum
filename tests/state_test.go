@@ -62,7 +62,7 @@ func TestState(t *testing.T) {
 	} {
 		st.walk(t, dir, func(t *testing.T, name string, test *StateTest) {
 			for _, subtest := range test.Subtests() {
-				if subtest.Fork != "Istanbul"{
+				if subtest.Fork != "Istanbul" {
 					continue
 				}
 				subtest := subtest
