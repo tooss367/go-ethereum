@@ -17,9 +17,11 @@
 package state
 
 import (
+	"bufio"
 	"fmt"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"os"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -107,7 +109,25 @@ func (s *StateDB) Repair(diskdb ethdb.Database) bool {
 	if err == nil {
 		return false
 	}
-	//diskdb := s.db.TrieDB().DiskDB()
+	msg := fmt.Sprintf(`
+The state verification found at least one missing node. In order to perform 
+a "healing fast-sync", %d parent nodes needs to be removed from the database. 
+
+Once this is done, you can start geth normally (mode=fast), and geth should finish repairing 
+the state trie. 
+
+If you were running an archive node, this operation will most definitely lead to some states
+being inaccessible, since the repair will be based off the tip of the chain, not the point at
+which your node is currently at.
+
+Do you wish to proceed? [y/N]
+`, len(hashes))
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Println(msg)
+	text, _ := reader.ReadString('\n')
+	if text != "y" && text != "Y" {
+		return false
+	}
 	for _, h := range hashes {
 		// Delete the hash from the database
 		fmt.Printf("Deleting hash %x\n", h)
