@@ -622,7 +622,7 @@ func inspect(ctx *cli.Context) error {
 }
 
 func repairTrie(ctx *cli.Context) error {
-	stack,_ := makeConfigNode(ctx)
+	stack, _ := makeConfigNode(ctx)
 	defer stack.Close()
 	chain, chainDb := utils.MakeChain(ctx, stack, true)
 	defer chainDb.Close()
@@ -635,7 +635,10 @@ func repairTrie(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	return state.Verify([]byte{})
+	if state.Repair(chainDb){
+		fmt.Printf("Please restart the node in fast-sync mode, and hope that it works!")
+	}
+	return nil
 }
 
 // hashish returns true for strings that look like hashes.
