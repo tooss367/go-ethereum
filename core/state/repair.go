@@ -104,7 +104,7 @@ func verifyStorageTrie(root common.Hash, db Database, vs *verifierStats) (error,
 // Repair returns 'true' if anything was changed
 func (s *StateDB) Repair(diskdb ethdb.Database) bool {
 	err, hashes := s.Verify(nil)
-	if err == nil{
+	if err == nil {
 		return false
 	}
 	//diskdb := s.db.TrieDB().DiskDB()
@@ -137,6 +137,8 @@ func (s *StateDB) Verify(start []byte) (error, []common.Hash) {
 		nodes   = uint64(0)
 		err     error
 		parents []common.Hash
+		// Avoid rechecking storage
+		checkedStorageTries = make(map[common.Hash]struct{})
 	)
 	for it.Next(true) {
 		vs.path = it.Path()
@@ -156,6 +158,10 @@ func (s *StateDB) Verify(start []byte) (error, []common.Hash) {
 			if err := rlp.DecodeBytes(it.LeafBlob(), &acc); err != nil {
 				log.Crit("Invalid account encountered during verification", "err", err)
 			}
+			if _, checked := checkedStorageTries[acc.Root]; checked {
+				continue
+			}
+			checkedStorageTries[acc.Root] = struct{}{}
 			if err, parents = verifyStorageTrie(acc.Root, s.db, vs); err != nil {
 				// This account is bad.
 				break
