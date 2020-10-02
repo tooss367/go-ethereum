@@ -19,6 +19,7 @@ package state
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -206,15 +207,23 @@ func (s *StateDB) IteratorDump(excludeCode, excludeStorage, excludeMissingPreima
 
 func (s *StateDB) Verify(start []byte) error {
 	log.Info("Starting verification procedure")
-	it := s.trie.NodeIterator(start)
-	logged := time.Now()
-	startTime := time.Now()
-	lastPath := start
-	nodes := uint64(0)
+	var (
+		it        = s.trie.NodeIterator(start)
+		logged    = time.Now()
+		startTime = time.Now()
+		lastPath  = start
+		parent    common.Hash
+		nodes     = uint64(0)
+		err       error
+	)
 	for it.Next(true) {
-		hash, path, err := it.Hash(), it.Path(), it.Error()
+		var (
+			hash common.Hash
+			path []byte
+		)
+		hash, path, parent, err = it.Hash(), it.Path(), it.Parent(), it.Error()
 		if err != nil {
-			return fmt.Errorf("trie error: %v (last successfull path was %x", err, lastPath)
+			return fmt.Errorf("trie error: %v (last successfull path was %x), parent %x", err, lastPath, parent)
 		}
 		lastPath = path
 		nodes++
@@ -233,6 +242,27 @@ func (s *StateDB) Verify(start []byte) error {
 			logged = time.Now()
 		}
 	}
+	if err = it.Error(); err != nil {
+		// We have hit an error. Now figure out the parents
+		var parents []string
+		path := it.Path()
+		log.Error("Trie error", "path", fmt.Sprintf("%x", path),
+			"hash", it.Hash(), "parent", it.Parent(), "error", err)
+		for {
+			if ok, _ := trie.Pop(it); !ok {
+				break
+			}
+			parents = append(parents, fmt.Sprintf("%x", it.Hash()))
+			log.Error("Parent ", "hash", it.Hash(),
+				"parent", it.Parent(), "path", fmt.Sprintf("%x", it.Path()))
+		}
+		if len(parents) > 0 {
+			fmt.Println("Elements that need to be removed:\n")
+			fmt.Printf("%v\n\n", strings.Join(parents, "\n"))
+		}
+		return fmt.Errorf("trie error: %v , parent %x", err, parent)
+	}
+
 	log.Info("Verified state trie", "elapsed", time.Since(startTime), "nodes", nodes)
 	return nil
 }
