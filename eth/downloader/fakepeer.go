@@ -18,34 +18,42 @@ package downloader
 
 import (
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 // FakePeer is a mock downloader peer that operates on a local database instance
 // instead of being an actual live node. It's useful for testing and to implement
 // sync commands from an existing local database.
 type FakePeer struct {
-	id string
-	db ethdb.Database
-	hc *core.HeaderChain
-	dl *Downloader
+	id       string
+	db       ethdb.Database
+	hc       *core.HeaderChain
+	dl       *Downloader
+	fakeHead *types.Header
 }
 
 // NewFakePeer creates a new mock downloader peer with the given data sources.
 func NewFakePeer(id string, db ethdb.Database, hc *core.HeaderChain, dl *Downloader) *FakePeer {
-	return &FakePeer{id: id, db: db, hc: hc, dl: dl}
+	header := hc.CurrentHeader()
+	// If this node was properly terminated, it should have the state for head, head-1, and head-127.
+	// The peer syncing with us will aim in on head-64. Therefore, we can try to get
+	// head-64 == truehead - 127
+	// So we serve head = truehead - 127 + 64
+	fakeHead := hc.GetHeaderByNumber(header.Number.Uint64() - 127 + 64)
+	return &FakePeer{id: id, db: db, hc: hc, dl: dl, fakeHead: fakeHead}
 }
 
 // Head implements downloader.Peer, returning the current head hash and number
 // of the best known header.
 func (p *FakePeer) Head() (common.Hash, *big.Int) {
-	header := p.hc.CurrentHeader()
-	return header.Hash(), header.Number
+	return p.fakeHead.Hash(), p.fakeHead.Number
 }
 
 // RequestHeadersByHash implements downloader.Peer, returning a batch of headers
@@ -98,9 +106,15 @@ func (p *FakePeer) RequestHeadersByNumber(number uint64, amount int, skip int, r
 	var (
 		headers []*types.Header
 		unknown bool
+		maxNum  = p.fakeHead.Number.Uint64()
 	)
 	for !unknown && len(headers) < amount {
+
 		origin := p.hc.GetHeaderByNumber(number)
+		if number > maxNum {
+			log.Warn("Peer almost found us out! [1]")
+			break
+		}
 		if origin == nil {
 			break
 		}
@@ -154,7 +168,14 @@ func (p *FakePeer) RequestNodeData(hashes []common.Hash) error {
 	for _, hash := range hashes {
 		if entry, err := p.db.Get(hash.Bytes()); err == nil {
 			data = append(data, entry)
+			continue
 		}
+		if entry := rawdb.ReadCodeWithPrefix(p.db, hash); len(entry) > 0 {
+			data = append(data, entry)
+		}
+	}
+	if len(data) == 0 {
+		log.Warn("Not delivering any state!", "hashes", len(hashes))
 	}
 	p.dl.DeliverNodeData(p.id, data)
 	return nil

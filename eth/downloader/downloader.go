@@ -292,7 +292,11 @@ func (d *Downloader) Synchronising() bool {
 // RegisterPeer injects a new download peer into the set of block source to be
 // used for fetching hashes and blocks from.
 func (d *Downloader) RegisterPeer(id string, version uint, peer Peer) error {
-	logger := log.New("peer", id[:16])
+	shortid := id
+	if len(id) > 16 {
+		shortid = id[:16]
+	}
+	logger := log.New("peer", shortid)
 	logger.Trace("Registering sync peer")
 	if err := d.peers.Register(newPeerConnection(id, version, peer, logger)); err != nil {
 		logger.Error("Failed to register sync peer", "err", err)
@@ -313,7 +317,11 @@ func (d *Downloader) RegisterLightPeer(id string, version uint, peer LightPeer) 
 // the queue.
 func (d *Downloader) UnregisterPeer(id string) error {
 	// Unregister the peer from the active peer set and revoke any fetch tasks
-	logger := log.New("peer", id[:16])
+	shortid := id
+	if len(id) > 16 {
+		shortid = id[:16]
+	}
+	logger := log.New("peer", shortid)
 	logger.Trace("Unregistering sync peer")
 	if err := d.peers.Unregister(id); err != nil {
 		logger.Error("Failed to unregister sync peer", "err", err)

@@ -478,8 +478,8 @@ func copyDb(ctx *cli.Context) error {
 	// Synchronise with the simulated peer
 	start := time.Now()
 
-	currentHeader := hc.CurrentHeader()
-	if err = dl.Synchronise("local", currentHeader.Hash(), hc.GetTd(currentHeader.Hash(), currentHeader.Number.Uint64()), syncMode); err != nil {
+	headHash, headNum := peer.Head()
+	if err = dl.Synchronise("local", headHash, hc.GetTd(headHash, headNum.Uint64()), syncMode); err != nil {
 		return err
 	}
 	for dl.Synchronising() {
