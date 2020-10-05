@@ -19,12 +19,13 @@ package state
 import (
 	"bufio"
 	"fmt"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/ethdb"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
@@ -53,12 +54,17 @@ func (vs *verifierStats) Log(msg string) {
 	vs.lastLog = time.Now()
 }
 
+type pathHash struct {
+	path []byte
+	hash common.Hash
+}
+
 // verifyStorageTrie checks a given trie. If the trie is missing, or the trie
 // contains errors, the hashes of all nodes leading to the missing item
 // are returned.
 // This method may return zero hashes, which means that the storage trie
 // itself is missing
-func verifyStorageTrie(root common.Hash, db Database, vs *verifierStats) (error, []common.Hash) {
+func verifyStorageTrie(root common.Hash, db Database, vs *verifierStats) (error, []*pathHash) {
 
 	storageTrie, err := db.OpenStorageTrie(common.Hash{}, root)
 
@@ -80,20 +86,16 @@ func verifyStorageTrie(root common.Hash, db Database, vs *verifierStats) (error,
 	}
 	if err = it.Error(); err != nil {
 		// We have hit an error. Now figure out the parents
-		var parents []common.Hash
+		var parents []*pathHash
 		path := it.Path()
 		log.Error("Storage trie error", "path", fmt.Sprintf("%x", path),
 			"hash", it.Hash(), "parent", it.Parent(), "error", err)
 
-		if it.Parent() != (common.Hash{}) {
-			fmt.Println("Elements that need to be removed:\n")
-		}
 		for {
 			if ok, _ := trie.Pop(it); !ok {
 				break
 			}
-			fmt.Printf("%x\n", it.Hash())
-			parents = append(parents, it.Hash())
+			parents = append(parents, &pathHash{common.CopyBytes(path), it.Hash()})
 			log.Error("Parent ", "hash", it.Hash(), "parent", it.Parent(),
 				"path", fmt.Sprintf("0x%x", it.Path()))
 		}
@@ -120,18 +122,19 @@ If you were running an archive node, this operation will most definitely lead to
 being inaccessible, since the repair will be based off the tip of the chain, not the point at
 which your node is currently at.
 
-Do you wish to proceed? [y/N]
-`, len(hashes))
+Do you wish to proceed? 
+
+[y/N] > `, len(hashes))
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Println(msg)
 	text, _ := reader.ReadString('\n')
-	if text != "y" && text != "Y" {
+	if ans := strings.TrimSpace(text); ans != "y" && ans != "Y" {
 		return false
 	}
 	for _, h := range hashes {
 		// Delete the hash from the database
-		fmt.Printf("Deleting hash %x\n", h)
-		diskdb.Delete(h[:])
+		fmt.Printf("Deleting hash %x @ %x\n", h.hash, h.path)
+		diskdb.Delete(h.hash[:])
 	}
 	// Now, we have to fool geth to think it's in the middle of an
 	// interrupted fast-sync
@@ -143,7 +146,7 @@ Do you wish to proceed? [y/N]
 	return true
 }
 
-func (s *StateDB) Verify(start []byte) (error, []common.Hash) {
+func (s *StateDB) Verify(start []byte) (error, []*pathHash) {
 	log.Info("Starting verification procedure")
 	var (
 		vs = &verifierStats{
@@ -156,7 +159,7 @@ func (s *StateDB) Verify(start []byte) (error, []common.Hash) {
 		it      = s.trie.NodeIterator(start)
 		nodes   = uint64(0)
 		err     error
-		parents []common.Hash
+		parents []*pathHash
 		// Avoid rechecking storage
 		checkedStorageTries = make(map[common.Hash]struct{})
 	)
@@ -207,12 +210,12 @@ func (s *StateDB) Verify(start []byte) (error, []common.Hash) {
 			fmt.Printf("%x\n", it.Hash())
 			log.Error("Parent ", "hash", it.Hash(), "parent", it.Parent(),
 				"path", fmt.Sprintf("0x%x", it.Path()))
-			parents = append(parents, it.Hash())
+			parents = append(parents, &pathHash{common.CopyBytes(it.Path()), it.Hash()})
 		}
 		if len(parents) > 0 {
 			fmt.Println("Elements that need to be removed:\n")
 			for _, h := range parents {
-				fmt.Printf("%x\n", h)
+				fmt.Printf("%x (@ %x) \n", h.hash, h.path)
 			}
 		}
 		return fmt.Errorf("trie error: %w", err), parents
