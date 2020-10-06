@@ -18,6 +18,7 @@ package state
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -223,4 +224,144 @@ func (s *StateDB) Verify(start []byte) (error, []*pathHash) {
 
 	log.Info("Verified state trie", "elapsed", time.Since(vs.start), "nodes", nodes)
 	return nil, nil
+}
+
+type inspectionStats struct {
+	start    time.Time // Timestamp when generation started
+	lastLog  time.Time
+	nodes    uint64 // number of nodes loaded
+	items    uint64
+	children uint64 // number of children resolved
+	current  []byte
+}
+
+func (is *inspectionStats) Log(msg string) {
+	ctx := []interface{}{
+		"elapsed", time.Since(is.start),
+		"nodes", is.nodes, "items", is.items, "children", is.children,
+		"current", fmt.Sprintf("%x", is.current),
+	}
+	log.Info(msg, ctx...)
+	is.lastLog = time.Now()
+}
+
+// decodeNode parses the RLP encoding of a trie node and returns the child hashes
+func decodeNode(buf []byte) ([]common.Hash, error) {
+	if len(buf) == 0 {
+		return nil, errors.New("empty data")
+	}
+	elems, _, err := rlp.SplitList(buf)
+	if err != nil {
+		return nil, fmt.Errorf("decode error: %v", err)
+	}
+	switch c, _ := rlp.CountValues(elems); c {
+	case 2:
+		return decodeShort(elems)
+	case 17:
+		return decodeFull(elems)
+	default:
+		return nil, fmt.Errorf("invalid number of list elements: %v", c)
+	}
+}
+func decodeShort(elems []byte) ([]common.Hash, error) {
+	kbuf, rest, err := rlp.SplitString(elems)
+	if err != nil {
+		return nil, err
+	}
+	// Check if it has terminator
+	if kbuf[0]&0b100000 != 0 {
+		//value node. No children
+		return nil, nil
+	}
+	v, _, err := decodeRef(rest)
+	if err != nil {
+		return nil, err
+	}
+	if v != nil {
+		return []common.Hash{common.BytesToHash(v)}, nil
+	}
+	return nil, nil
+}
+
+func decodeFull(elems []byte) ([]common.Hash, error) {
+	var children []common.Hash
+	for i := 0; i < 16; i++ {
+		hash, rest, err := decodeRef(elems)
+		if err != nil {
+			return nil, err
+		}
+		if hash != nil {
+			children = append(children, common.BytesToHash(hash))
+		}
+		elems = rest
+	}
+	return children, nil
+}
+
+func decodeRef(buf []byte) ([]byte, []byte, error) {
+	kind, val, rest, err := rlp.Split(buf)
+	if err != nil {
+		return nil, buf, err
+	}
+	switch {
+	case kind == rlp.List:
+		// 'embedded' node reference..
+		return nil, rest, nil
+	case kind == rlp.String && len(val) == 0:
+		// empty node
+		return nil, rest, nil
+	case kind == rlp.String && len(val) == 32:
+		return val, rest, nil
+	default:
+		return nil, rest, fmt.Errorf("invalid RLP string size %d (want 0 or 32)", len(val))
+	}
+}
+
+// InspectDB does an in-depth inspection of the db, in the following manner:
+// - For each state entry in the database,
+// - Decode the node,
+// - Check if the children of that node are present
+// This means that the method will basically load every item twice (or more), and
+// it can take a long time to execute		"lastAccount", fmt.Sprintf("0x%x", vs.lastAccount),
+func InspectDb(db ethdb.Database) error {
+	log.Info("Starting verification procedure")
+	var (
+		is = &inspectionStats{
+			start:   time.Now(),
+			lastLog: time.Now(),
+			nodes:   0,
+		}
+	)
+	it := db.NewIterator(nil, nil)
+	defer it.Release()
+	// Inspect key-value database first.
+	for it.Next() {
+		var (
+			key = it.Key()
+		)
+		is.items++
+		is.current = key
+		if len(key) != common.HashLength {
+			continue
+		}
+		is.nodes++
+		// Probably a state node
+		// We should be able to decode it as either a full- or a shortnode.
+		data := it.Value()
+		children, err := decodeNode(data)
+		if err != nil {
+			return err
+		}
+		for _, c := range children {
+			is.children++
+			if _, err := db.Get(c[:]); err != nil {
+				return fmt.Errorf("Missing item %x\n", c)
+			}
+		}
+		if time.Since(is.lastLog) > 8*time.Second {
+			is.Log("Inspecting state trie")
+		}
+	}
+	is.Log("Inspection done")
+	return nil
 }

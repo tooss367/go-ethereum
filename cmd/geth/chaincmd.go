@@ -234,6 +234,20 @@ Use "ethereum dump 0" to dump the genesis block.`,
 		},
 		Category: "BLOCKCHAIN COMMANDS",
 	}
+	trieInspectCommand = cli.Command{
+		Action:    utils.MigrateFlags(inspectTrie),
+		Name:      "inspecttrie",
+		Usage:     "Deep inspection of geth state database",
+		ArgsUsage: " ",
+		Flags: []cli.Flag{
+			utils.DataDirFlag,
+			utils.CacheFlag,
+			utils.RopstenFlag,
+			utils.RinkebyFlag,
+			utils.GoerliFlag,
+		},
+		Category: "BLOCKCHAIN COMMANDS",
+	}
 )
 
 // initGenesis will initialise the given JSON format genesis file and writes it as
@@ -635,10 +649,18 @@ func repairTrie(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	if state.Repair(chainDb){
+	if state.Repair(chainDb) {
 		fmt.Printf("Please restart the node in fast-sync mode, and hope that it works!")
 	}
 	return nil
+}
+
+func inspectTrie(ctx *cli.Context) error {
+	stack, _ := makeConfigNode(ctx)
+	defer stack.Close()
+	_, chainDb := utils.MakeChain(ctx, stack, true)
+	defer chainDb.Close()
+	return state.InspectDb(chainDb)
 }
 
 // hashish returns true for strings that look like hashes.
