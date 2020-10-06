@@ -18,6 +18,7 @@ package state
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -40,6 +41,7 @@ type verifierStats struct {
 	nodes       uint64 // number of nodes loaded
 	accounts    uint64 // Number of accounts loaded
 	slots       uint64 // Number of storage slots checked
+	codes       uint64
 	lastAccount []byte
 	path        []byte
 }
@@ -47,7 +49,7 @@ type verifierStats struct {
 func (vs *verifierStats) Log(msg string) {
 	ctx := []interface{}{
 		"elapsed", time.Since(vs.start),
-		"nodes", vs.nodes, "accounts", vs.accounts, "slots", vs.slots,
+		"nodes", vs.nodes, "accounts", vs.accounts, "slots", vs.slots, "codes", vs.codes,
 		"lastAccount", fmt.Sprintf("0x%x", vs.lastAccount),
 		"path", fmt.Sprintf("0x%x", vs.path),
 	}
@@ -189,6 +191,16 @@ func (s *StateDB) Verify(start []byte) (error, []*pathHash) {
 			if err, parents = verifyStorageTrie(acc.Root, s.db, vs); err != nil {
 				// This account is bad.
 				break
+			}
+			// Check code
+			if !bytes.Equal(acc.CodeHash, emptyCodeHash) {
+				vs.codes++
+				if rawdb.ReadCodeWithPrefix(s.db.TrieDB().DiskDB(), common.BytesToHash(acc.CodeHash)) == nil {
+					// Missing code
+					log.Error("Missing code", "codehash", acc.CodeHash)
+					err = fmt.Errorf("missing code for codehash %x", acc.CodeHash)
+					break
+				}
 			}
 		}
 		if time.Since(vs.lastLog) > 8*time.Second {
