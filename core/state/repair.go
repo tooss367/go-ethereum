@@ -160,7 +160,6 @@ func (s *StateDB) Verify(start []byte) (error, []*pathHash) {
 			path:     []byte{},
 		}
 		it      = s.trie.NodeIterator(start)
-		nodes   = uint64(0)
 		err     error
 		parents []*pathHash
 		// Avoid rechecking storage
@@ -233,8 +232,7 @@ func (s *StateDB) Verify(start []byte) (error, []*pathHash) {
 		}
 		return fmt.Errorf("trie error: %w", err), parents
 	}
-
-	log.Info("Verified state trie", "elapsed", time.Since(vs.start), "nodes", nodes)
+	vs.Log("Verified state trie")
 	return nil, nil
 }
 
