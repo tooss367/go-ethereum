@@ -87,9 +87,8 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 // indicating the block was invalid.
 func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
 	if !config.IsYoloV2(header.Number) && tx.Type() != types.LegacyTxId {
-		return nil, ErrTxTypeInvalid
+		return nil, ErrTxTypeNotSupported
 	}
-
 	msg, err := tx.AsMessage(types.MakeSigner(config, header.Number))
 	if err != nil {
 		return nil, err
