@@ -27,3 +27,55 @@ func TestCommonLength(t *testing.T) {
 		}
 	}
 }
+
+func TestSubmatch(t *testing.T) {
+	for i, tc := range []struct {
+		keyA   string
+		bitlenA int
+		keyB   string
+		bitlenB int
+		offset int
+		exp    bool
+	}{
+		{"aabb",8, "ab",8, 4, true},
+		{"aabb",8, "ab",8, 0, false},
+		{"aabbccddeeff",8, "aabbccddeeff",8, 0, true},
+		{"aabbccddee80",8, "cc",8, 16, true},
+		{"aabbccddee80",8, "c0",4, 16, true},
+		{"0011223344556677889900aabbccddeeff",1, "0022446688aaccef113201557799bbdd",8, 1, true},
+	} {
+		x := newPartialBinaryKey(common.FromHex(tc.keyA), tc.bitlenA)
+		y := newPartialBinaryKey(common.FromHex(tc.keyB), tc.bitlenB)
+		if got, exp := x.subMatch(y, tc.offset), tc.exp; got != exp {
+			t.Errorf("tc %d error: have %v, want %v", i, got, exp)
+		}
+	}
+}
+
+func TestBitSet(t *testing.T){
+	for i, tc := range []struct {
+		keyA   string
+		bitlenA int
+		offset int
+		exp    bool
+	}{
+		{"a1bb",8,  0, true},
+		{"a1bb",8,  1, false},
+		{"a1bb",8,  2, true},
+		{"a1bb",8,  3, false},
+		{"a1bb",8,  4, false},
+		{"a1bb",8,  5, false},
+		{"a1bb",8,  6, false},
+		{"a1bb",8,  7, true},
+		{"a1bb",1,  8, true},
+		{"a1bb",1,  9, false},
+		{"a1bb",1,  10, false},
+		{"a1bb",1,  11, false},
+		} {
+		x := newPartialBinaryKey(common.FromHex(tc.keyA), tc.bitlenA)
+		if got, exp := x.IsSet(tc.offset), tc.exp; got != exp {
+			t.Errorf("tc %d error: have %v, want %v", i, got, exp)
+		}
+	}
+}
+
