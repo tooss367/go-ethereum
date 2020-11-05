@@ -1841,42 +1841,43 @@ func (s *Syncer) forwardAccountTask(task *accountTask) {
 			}
 		}
 	}
-	// Persist every finalized trie node that's not on the boundary
-	batch := s.db.NewBatch()
-
 	var (
 		nodes   int
 		skipped int
 		bytes   common.StorageSize
 	)
-	it := res.nodes.NewIterator(nil, nil)
-	for it.Next() {
-		// Boundary nodes are not written, since they are incomplete
-		if _, ok := res.bounds[common.BytesToHash(it.Key())]; ok {
-			skipped++
-			continue
-		}
-		// Overflow nodes are not written, since they mess with another task
-		if _, err := res.overflow.Get(it.Key()); err == nil {
-			skipped++
-			continue
-		}
-		// Accounts with split storage requests are incomplete
-		if _, err := incompletes.Get(it.Key()); err == nil {
-			skipped++
-			continue
-		}
-		// Node is neither a boundary, not an incomplete account, persist to disk
-		batch.Put(it.Key(), it.Value())
-		s.bloom.Add(it.Key())
+	if res.nodes != nil {
+		// Persist every finalized trie node that's not on the boundary
+		batch := s.db.NewBatch()
+		it := res.nodes.NewIterator(nil, nil)
+		for it.Next() {
+			// Boundary nodes are not written, since they are incomplete
+			if _, ok := res.bounds[common.BytesToHash(it.Key())]; ok {
+				skipped++
+				continue
+			}
+			// Overflow nodes are not written, since they mess with another task
+			if _, err := res.overflow.Get(it.Key()); err == nil {
+				skipped++
+				continue
+			}
+			// Accounts with split storage requests are incomplete
+			if _, err := incompletes.Get(it.Key()); err == nil {
+				skipped++
+				continue
+			}
+			// Node is neither a boundary, not an incomplete account, persist to disk
+			batch.Put(it.Key(), it.Value())
+			s.bloom.Add(it.Key())
 
-		bytes += common.StorageSize(common.HashLength + len(it.Value()))
-		nodes++
-	}
-	it.Release()
+			bytes += common.StorageSize(common.HashLength + len(it.Value()))
+			nodes++
+		}
+		it.Release()
 
-	if err := batch.Write(); err != nil {
-		log.Crit("Failed to persist accounts", "err", err)
+		if err := batch.Write(); err != nil {
+			log.Crit("Failed to persist accounts", "err", err)
+		}
 	}
 	s.accountBytes += bytes
 	s.accountSynced += uint64(len(res.accounts))
@@ -1955,16 +1956,32 @@ func (s *Syncer) OnAccounts(peer PeerIF, id uint64, hashes []common.Hash, accoun
 	for i, node := range proof {
 		nodes[i] = node
 	}
-	proofdb := nodes.NodeSet()
+	var (
+		db   ethdb.KeyValueStore
+		tr   *trie.Trie
+		cont bool
+		err  error
+	)
 
-	var end []byte
-	if len(keys) > 0 {
-		end = keys[len(keys)-1]
-	}
-	db, tr, cont, err := trie.VerifyRangeProof(root, req.origin[:], end, keys, accounts, proofdb)
-	if err != nil {
-		logger.Warn("Account range failed proof", "err", err)
-		return err
+	if len(nodes) == 0 {
+		// No proof has been attached, the response must cover the entire key
+		// space and hash to the origin root.
+		db, tr, cont, err = trie.VerifyRangeProof(root, req.origin[:], nil, keys, accounts, nil)
+		if err != nil {
+			logger.Warn("Account range failed proof", "err", err)
+			return err
+		}
+	} else {
+		proofdb := nodes.NodeSet()
+		var end []byte
+		if len(keys) > 0 {
+			end = keys[len(keys)-1]
+		}
+		db, tr, cont, err = trie.VerifyRangeProof(root, req.origin[:], end, keys, accounts, proofdb)
+		if err != nil {
+			logger.Warn("Account range failed proof", "err", err)
+			return err
+		}
 	}
 	// Partial trie reconstructed, send it to the scheduler for storage filling
 	bounds := make(map[common.Hash]struct{})

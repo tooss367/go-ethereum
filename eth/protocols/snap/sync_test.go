@@ -50,7 +50,12 @@ type testPeer struct {
 }
 
 func (t *testPeer) RequestTrieNodes(id uint64, root common.Hash, paths []trieNodePathSet, bytes uint64) error {
-	panic("implement me")
+	t.Log().Info("<- TrieNodesReq", "req_id", id, "root", root,
+		"paths", len(paths))
+	for _, p := range paths{
+		t.Log().Info("Requested trie path", "path", p)
+	}
+	return nil
 }
 
 func (t *testPeer) ID() string {
@@ -68,8 +73,7 @@ func defaultRequestAccountRangeFn(t *testPeer, requestId uint64, root common.Has
 			vals = append(vals, entry.v)
 		}
 	}
-	// Unless we send the entire trie, we need to supply proofs
-	if true || len(vals) != len(t.accountValues) {
+	if len(vals) != len(t.accountValues) {
 		proof := light.NewNodeSet()
 		if err := t.accountTrie.Prove(origin[:], 0, proof); err != nil {
 			t.log.Error("Could not prove inexistence of origin", "origin", origin,
