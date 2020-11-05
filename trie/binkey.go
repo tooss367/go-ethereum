@@ -30,12 +30,43 @@ func newPartialBinaryKey(key []byte, bitLen int) *binaryKey {
 }
 
 // Copy creates a copy of the binaryKey, from the given offset
-func (b *binaryKey) Copy(start int) *binaryKey{
-	panic("implement me")
-	// Calculate required size,
-	// copy bytes over
-	// loop and shift each byte,
-	// fix up the bitlen
+func (b *binaryKey) Copy(start int) *binaryKey {
+	bitlen := b.Len() - start
+	if bitlen == 0 {
+		return &binaryKey{
+			key:    make([]byte, 0),
+			bitlen: 0,
+		}
+	}
+	dst := make([]byte, (bitlen+7)/8)
+	copy(dst, b.key[start/8:])
+	shift := start % 8
+	if shift > 0 {
+		for i := range dst[:len(dst)-1] {
+			dst[i] = (dst[i] << shift) | (dst[i+1])>>(8-shift)
+		}
+		dst[len(dst)-1] = dst[len(dst)-1] << shift
+	}
+
+	cpy := &binaryKey{
+		key:    dst,
+		bitlen: 8 - shift,
+	}
+	return cpy
+}
+
+// bitString return a string of bits representing the key,
+// mainly to aid in testing
+func (b *binaryKey) bitString() string {
+	var out = make([]byte, b.Len())
+	for i := 0; i < b.Len(); i++ {
+		if b.IsSet(i) {
+			out[i] = '1'
+		} else {
+			out[i] = '0'
+		}
+	}
+	return string(out)
 }
 
 // Len returns the number of bits in the key
@@ -64,7 +95,7 @@ func (b *binaryKey) commonLength(other *binaryKey) int {
 				continue
 			}
 			// The byte differs. Now figure out on which bit it differs
-			// We can do that by xoring then and counting leading zeroes
+			// We can do that by xoring them and counting leading zeroes
 			y := larger.key[i] ^ x
 			return 8*i + bits.LeadingZeros8(uint8(y))
 		}
@@ -152,10 +183,10 @@ func (k *binaryKey) subMatch(k2 *binaryKey, offset int) bool {
 	return true
 }
 
-func (b *binaryKey) IsSet(bit int) bool{
-	if bit > b.Len(){
+func (b *binaryKey) IsSet(bit int) bool {
+	if bit >= b.Len() {
 		return false
 	}
-	byteOffset, bitOffset := bit/8, bit % 8
-	return b.key[byteOffset] & (1 << (7-bitOffset)) != 0
+	byteOffset, bitOffset := bit/8, bit%8
+	return b.key[byteOffset]&(1<<(7-bitOffset)) != 0
 }
