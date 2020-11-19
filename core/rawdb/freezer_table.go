@@ -299,10 +299,11 @@ func (t *freezerTable) repair() error {
 	t.headId = lastIndex.filenum
 
 	// Close opened files and preopen all files
-	if err := t.preopen(); err != nil {
+	numFiles, err := t.preopen()
+	if err != nil {
 		return err
 	}
-	t.logger.Debug("Chain freezer table opened", "items", t.items, "size", common.StorageSize(t.headBytes))
+	t.logger.Debug("Chain freezer table opened", "items", t.items, "files", numFiles, "size", common.StorageSize(t.headBytes))
 	return nil
 }
 
@@ -310,18 +311,21 @@ func (t *freezerTable) repair() error {
 // since it assumes that it doesn't have to bother with locking
 // The rationale for doing preopen is to not have to do it from within Retrieve, thus not needing to ever
 // obtain a write-lock within Retrieve.
-func (t *freezerTable) preopen() (err error) {
+func (t *freezerTable) preopen() (int, error) {
 	// The repair might have already opened (some) files
 	t.releaseFilesAfter(0, false)
+	numOpened := 0
+	var err error
 	// Open all except head in RDONLY
 	for i := t.tailId; i < t.headId; i++ {
 		if _, err = t.openFile(i, openFreezerFileForReadOnly); err != nil {
-			return err
+			return numOpened, err
 		}
+		numOpened++
 	}
 	// Open head in read/write
 	t.head, err = t.openFile(t.headId, openFreezerFileForAppend)
-	return err
+	return numOpened + 1, err
 }
 
 // truncate discards any recent data above the provided threshold number.
