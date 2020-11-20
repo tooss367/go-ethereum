@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/pprof"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -678,7 +679,31 @@ func repairBlocks(ctx *cli.Context) error {
 	if head == nil {
 		return errors.New("No block found!")
 	}
+	exitCh := make(chan struct{})
+	go func() {
+		num := 0
+		for {
+			select {
+			case <-time.After(10 * time.Second):
+				memProfilePath := fmt.Sprintf("memprof.%d", num)
+				log.Info("Writing mem profile", "file", memProfilePath)
+				f, err := os.Create(memProfilePath)
+				if err != nil {
+					log.Info("could not create memory profile", "error", err)
+					return
+				}
+				if err := pprof.WriteHeapProfile(f); err != nil {
+					fmt.Println("could not write memory profile", "error", err)
+					return
+				}
+				f.Close()
+				num++
+			case <-exitCh:
+				return
+			}
 
+		}
+	}()
 	log.Info("Checking if chain is intact ")
 	var prev *types.Block
 	for num := uint64(0); num < head.NumberU64(); num++ {
@@ -696,11 +721,12 @@ func repairBlocks(ctx *cli.Context) error {
 			}
 			prev = block
 		}
-		if num % 500000 == 0{
+		if num%500000 == 0 {
 			log.Info("Checking at", "number", num)
 		}
 	}
-	log.Info("All seems ok","inspected", head.NumberU64())
+	log.Info("All seems ok", "inspected", head.NumberU64())
+	close(exitCh)
 	return nil
 }
 
