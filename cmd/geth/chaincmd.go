@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/fjl/memsize"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -685,18 +686,32 @@ func repairBlocks(ctx *cli.Context) error {
 		for {
 			select {
 			case <-time.After(10 * time.Second):
+				memReportPath := fmt.Sprintf("memreport.%d", num)
+				log.Info("Writing memsize report", "file", memReportPath)
+				{
+					report := memsize.Scan(stack).Report()
+					f, err := os.Create(memReportPath)
+					if err != nil {
+						log.Info("could not create memory report", "error", err)
+						return
+					}
+					f.Write([]byte(report))
+					f.Close()
+				}
 				memProfilePath := fmt.Sprintf("memprof.%d", num)
 				log.Info("Writing mem profile", "file", memProfilePath)
-				f, err := os.Create(memProfilePath)
-				if err != nil {
-					log.Info("could not create memory profile", "error", err)
-					return
+				{
+					f, err := os.Create(memProfilePath)
+					if err != nil {
+						log.Info("could not create memory profile", "error", err)
+						return
+					}
+					if err := pprof.WriteHeapProfile(f); err != nil {
+						fmt.Println("could not write memory profile", "error", err)
+						return
+					}
+					f.Close()
 				}
-				if err := pprof.WriteHeapProfile(f); err != nil {
-					fmt.Println("could not write memory profile", "error", err)
-					return
-				}
-				f.Close()
 				num++
 			case <-exitCh:
 				return
