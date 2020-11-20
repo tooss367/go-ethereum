@@ -248,6 +248,20 @@ Use "ethereum dump 0" to dump the genesis block.`,
 		},
 		Category: "BLOCKCHAIN COMMANDS",
 	}
+	blockInspectCommand = cli.Command{
+		Action:    utils.MigrateFlags(repairBlocks),
+		Name:      "inspectblocks",
+		Usage:     "Check geth block database",
+		ArgsUsage: " ",
+		Flags: []cli.Flag{
+			utils.DataDirFlag,
+			utils.CacheFlag,
+			utils.RopstenFlag,
+			utils.RinkebyFlag,
+			utils.GoerliFlag,
+		},
+		Category: "BLOCKCHAIN COMMANDS",
+	}
 )
 
 // initGenesis will initialise the given JSON format genesis file and writes it as
@@ -652,6 +666,41 @@ func repairTrie(ctx *cli.Context) error {
 	if state.Repair(chainDb) {
 		fmt.Printf("Please restart the node in fast-sync mode, and hope that it works!")
 	}
+	return nil
+}
+
+func repairBlocks(ctx *cli.Context) error {
+	stack, _ := makeConfigNode(ctx)
+	defer stack.Close()
+	chain, chainDb := utils.MakeChain(ctx, stack, true)
+	defer chainDb.Close()
+	head := chain.CurrentBlock()
+	if head == nil {
+		return errors.New("No block found!")
+	}
+
+	log.Info("Checking if chain is intact ")
+	var prev *types.Block
+	for num := uint64(0); num < head.NumberU64(); num++ {
+		block := chain.GetBlockByNumber(num)
+		if prev != nil {
+			if block == nil {
+				log.Info("Missing block", "number", num)
+				return errors.New("Missing blocks")
+			}
+			if block.ParentHash() != prev.Hash() {
+				log.Info("Non-contiguous chain", "block", block.NumberU64(),
+					"parentHash", block.ParentHash(), "block", prev.NumberU64(),
+					"hash", prev.Hash())
+				return errors.New("Non-contiguous chain")
+			}
+			prev = block
+		}
+		if num % 500000 == 0{
+			log.Info("Checking at", "number", num)
+		}
+	}
+	log.Info("All seems ok","inspected", head.NumberU64())
 	return nil
 }
 

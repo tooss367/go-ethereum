@@ -233,6 +233,7 @@ func init() {
 		inspectCommand,
 		trieRepairCommand,
 		trieInspectCommand,
+		blockInspectCommand,
 		// See accountcmd.go:
 		accountCommand,
 		walletCommand,
