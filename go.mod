@@ -71,4 +71,4 @@ require (
 	gotest.tools v2.2.0+incompatible
 )
 
-replace github.com/syndtr/goleveldb => github.com/holiman/goleveldb v0.0.0-20201120181504-ccbe77aa691e
+replace github.com/syndtr/goleveldb => github.com/holiman/goleveldb v0.0.0-20201120182311-5deca8987713
