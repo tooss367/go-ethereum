@@ -116,6 +116,14 @@ github.com/hashicorp/golang-lru v0.5.4 h1:YDjusn29QI/Das2iO9M0BHnIbxPeyuCHsjMW+l
 github.com/hashicorp/golang-lru v0.5.4/go.mod h1:iADmTwqILo4mZ8BN3D2Q6+9jd8WM5uGBxy+E8yxSoD4=
 github.com/holiman/goleveldb v0.0.0-20201120151730-c18d7f53aa31 h1:NYV+mi117Sjnzt+1AHw6EIY6rlxYf61mBjw3qYpXdEc=
 github.com/holiman/goleveldb v0.0.0-20201120151730-c18d7f53aa31/go.mod h1:u2MKkTVTVJWe5D1rCvame8WqhBd88EuIwODJZ1VHCPM=
+github.com/holiman/goleveldb v0.0.0-20201120172114-817dbf82cd38 h1:uoAYmh5qsI9jkAdP5chh45jwxCCXl+JdU76n42wCgiY=
+github.com/holiman/goleveldb v0.0.0-20201120172114-817dbf82cd38/go.mod h1:u2MKkTVTVJWe5D1rCvame8WqhBd88EuIwODJZ1VHCPM=
+github.com/holiman/goleveldb v0.0.0-20201120172546-346704afd054 h1:R6P06Liam2/uZQPGAlOr06/JwhBs07gYecH+L+AnozE=
+github.com/holiman/goleveldb v0.0.0-20201120172546-346704afd054/go.mod h1:u2MKkTVTVJWe5D1rCvame8WqhBd88EuIwODJZ1VHCPM=
+github.com/holiman/goleveldb v0.0.0-20201120172902-80f72793ef97 h1:zD3RLMc/81xBZbKC4bgzaf9X/8H/GB1NnIgOdwnONxM=
+github.com/holiman/goleveldb v0.0.0-20201120172902-80f72793ef97/go.mod h1:u2MKkTVTVJWe5D1rCvame8WqhBd88EuIwODJZ1VHCPM=
+github.com/holiman/goleveldb v0.0.0-20201120175034-d51d1ded1d3c h1:WmyW4AYeWErepBbXYZazxs/hrtTTZxbt9VAlyGCUE9Q=
+github.com/holiman/goleveldb v0.0.0-20201120175034-d51d1ded1d3c/go.mod h1:u2MKkTVTVJWe5D1rCvame8WqhBd88EuIwODJZ1VHCPM=
 github.com/holiman/uint256 v1.1.1 h1:4JywC80b+/hSfljFlEBLHrrh+CIONLDz9NuFl0af4Mw=
 github.com/holiman/uint256 v1.1.1/go.mod h1:y4ga/t+u+Xwd7CpDgZESaRcWy0I7XMlTMA25ApIH5Jw=
 github.com/hpcloud/tail v1.0.0 h1:nfCOvKYfkgYP8hkirhJocXT2+zOD8yUNjXaWfTlyFKI=
