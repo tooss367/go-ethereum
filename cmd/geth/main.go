@@ -234,6 +234,7 @@ func init() {
 		trieRepairCommand,
 		trieInspectCommand,
 		blockInspectCommand,
+		compactDbCommand,
 		// See accountcmd.go:
 		accountCommand,
 		walletCommand,

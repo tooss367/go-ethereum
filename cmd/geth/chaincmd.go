@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/ethdb/leveldb"
 	"github.com/fjl/memsize"
 	"os"
 	"path/filepath"
@@ -254,6 +255,20 @@ Use "ethereum dump 0" to dump the genesis block.`,
 		Action:    utils.MigrateFlags(repairBlocks),
 		Name:      "inspectblocks",
 		Usage:     "Check geth block database",
+		ArgsUsage: " ",
+		Flags: []cli.Flag{
+			utils.DataDirFlag,
+			utils.CacheFlag,
+			utils.RopstenFlag,
+			utils.RinkebyFlag,
+			utils.GoerliFlag,
+		},
+		Category: "BLOCKCHAIN COMMANDS",
+	}
+	compactDbCommand = cli.Command{
+		Action:    utils.MigrateFlags(compactDb),
+		Name:      "compactdb",
+		Usage:     "Compact leveldb database",
 		ArgsUsage: " ",
 		Flags: []cli.Flag{
 			utils.DataDirFlag,
@@ -757,4 +772,26 @@ func inspectTrie(ctx *cli.Context) error {
 func hashish(x string) bool {
 	_, err := strconv.Atoi(x)
 	return err != nil
+}
+
+func compactDb(ctx *cli.Context) error {
+	stack, _ := makeConfigNode(ctx)
+	defer stack.Close()
+	path := stack.ResolvePath("chaindata")
+	db, err := leveldb.New(path, 1024, 1000, "")
+	if err != nil {
+		return err
+	}
+	log.Info("Triggering compaction")
+	err = db.Compact(nil, nil)
+	if err != nil {
+		log.Info("Compact err", "error", err)
+	}
+	log.Info("Calling close")
+	err = db.Close()
+	if err != nil {
+		log.Info("Close err", "error", err)
+	}
+	log.Info("Exiting")
+	return err
 }
