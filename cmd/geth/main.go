@@ -231,6 +231,7 @@ func init() {
 		dumpCommand,
 		dumpGenesisCommand,
 		inspectCommand,
+		compactDbCommand,
 		// See accountcmd.go:
 		accountCommand,
 		walletCommand,

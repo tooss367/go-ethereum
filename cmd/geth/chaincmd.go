@@ -34,6 +34,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/downloader"
+	"github.com/ethereum/go-ethereum/ethdb/leveldb"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
@@ -216,6 +217,20 @@ Use "ethereum dump 0" to dump the genesis block.`,
 			utils.YoloV2Flag,
 			utils.LegacyTestnetFlag,
 			utils.SyncModeFlag,
+		},
+		Category: "BLOCKCHAIN COMMANDS",
+	}
+	compactDbCommand = cli.Command{
+		Action:    utils.MigrateFlags(compactDb),
+		Name:      "compactdb",
+		Usage:     "Compact leveldb database",
+		ArgsUsage: " ",
+		Flags: []cli.Flag{
+			utils.DataDirFlag,
+			utils.CacheFlag,
+			utils.RopstenFlag,
+			utils.RinkebyFlag,
+			utils.GoerliFlag,
 		},
 		Category: "BLOCKCHAIN COMMANDS",
 	}
@@ -610,4 +625,44 @@ func inspect(ctx *cli.Context) error {
 func hashish(x string) bool {
 	_, err := strconv.Atoi(x)
 	return err != nil
+}
+
+func showStats(db *leveldb.Database){
+	// Output pre-compaction stats mostly to see the import trashing
+	stats, err := db.Stat("leveldb.stats")
+	if err != nil {
+		utils.Fatalf("Failed to read database stats: %v", err)
+	}
+	fmt.Println(stats)
+
+	ioStats, err := db.Stat("leveldb.iostats")
+	if err != nil {
+		utils.Fatalf("Failed to read database iostats: %v", err)
+	}
+	fmt.Println(ioStats)
+
+}
+
+func compactDb(ctx *cli.Context) error {
+	stack, _ := makeConfigNode(ctx)
+	defer stack.Close()
+	path := stack.ResolvePath("chaindata")
+	db, err := leveldb.New(path, 1024, 1000, "")
+	if err != nil {
+		return err
+	}
+	showStats(db)
+	log.Info("Triggering compaction")
+	err = db.Compact(nil, nil)
+	if err != nil {
+		log.Info("Compact err", "error", err)
+	}
+	showStats(db)
+	log.Info("Calling close")
+	err = db.Close()
+	if err != nil {
+		log.Info("Close err", "error", err)
+	}
+	log.Info("Exiting")
+	return err
 }
