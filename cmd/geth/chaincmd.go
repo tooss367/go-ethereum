@@ -782,12 +782,15 @@ func compactDb(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	log.Info("Triggering compaction")
-	err = db.Compact(nil, nil)
-	if err != nil {
-		log.Info("Compact err", "error", err)
-	}
-	log.Info("Calling close")
+
+	stats, err := db.Stat("leveldb.stats")
+	fmt.Println(stats)
+	//log.Info("Triggering compaction")
+	//err = db.Compact(nil, nil)
+	//if err != nil {
+	//	log.Info("Compact err", "error", err)
+	//}
+	//log.Info("Calling close")
 	err = db.Close()
 	if err != nil {
 		log.Info("Close err", "error", err)
