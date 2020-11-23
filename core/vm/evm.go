@@ -21,14 +21,14 @@ import (
 	"math/big"
 	"sync/atomic"
 	"time"
-	"os"
 	"fmt"
+	"database/sql"
 
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // emptyCodeHash is used by create to ensure deployment is disallowed to already
@@ -407,6 +407,31 @@ func (c *codeAndHash) Hash() common.Hash {
 	return c.hash
 }
 
+var codeDB *sql.DB = nil
+
+func openDB() {
+	var err error
+	codeDB, err = sql.Open("sqlite3", "/tmp/codedb.sqlite")
+	if err != nil { panic(err) }
+	codeDB.Exec("CREATE TABLE IF NOT EXISTS code (address VARCHAR(42) not null primary key, creationCode BLOB, deployedCodeHash VARCHAR(42));")
+	codeDB.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_code_address ON code(address);")
+	codeDB.Exec("CREATE INDEX IF NOT EXISTS idx_code_codeHash ON code(deployedCodeHash);")
+}
+
+func storeCode(address string, creationCode []byte, deployedCodeHash string) {
+	if codeDB == nil { openDB() }
+	statement := fmt.Sprintf(
+		`INSERT INTO code
+		(address, creationCode, deployedCodeHash)
+		VALUES
+		(?, ?, ?)
+		ON CONFLICT (address)
+		DO UPDATE SET creationCode=?, deployedCodeHash=?
+		WHERE address = ?`)
+	_, err := codeDB.Exec(statement, address, creationCode, deployedCodeHash, creationCode, deployedCodeHash, address)
+	if err != nil { panic(err) }
+}
+
 // create creates a new contract using code as deployment code.
 func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64, value *big.Int, address common.Address) ([]byte, common.Address, uint64, error) {
 	// Depth check execution. Fail if we're trying to execute above the
@@ -458,15 +483,7 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	if err == nil && !maxCodeSizeExceeded {
 		createDataGas := uint64(len(ret)) * params.CreateDataGas
 		if contract.UseGas(createDataGas) {
-			f, err := os.OpenFile("/tmp/codedb.txt", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0666)
-			if err != nil {
-				panic(err)
-			}
-
-			defer f.Close()
-			if _, err = f.WriteString(fmt.Sprintf("%s %s %s\n", address.Hex(), hexutil.Encode(codeAndHash.code), crypto.Keccak256Hash(ret).Hex())); err != nil {
-				panic(err)
-			}
+			storeCode(address.Hex(), codeAndHash.code, crypto.Keccak256Hash(ret).Hex())
 			evm.StateDB.SetCode(address, ret)
 		} else {
 			err = ErrCodeStoreOutOfGas
