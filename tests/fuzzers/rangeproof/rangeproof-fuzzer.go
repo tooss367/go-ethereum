@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-package trie
+package rangeproof
 
 import (
 	"bytes"
@@ -101,7 +101,11 @@ func (f *fuzzer) fuzz() int {
 	for _, kv := range vals {
 		entries = append(entries, kv)
 	}
+	if len(entries) <= 1{
+		return 0
+	}
 	sort.Sort(entries)
+
 	var ok = 0
 	for {
 		start := int(f.readInt() % uint64(len(entries)))
@@ -165,10 +169,26 @@ func (f *fuzzer) fuzz() int {
 			break
 		}
 		ok = 1
-		trie.VerifyRangeProof(tr.Hash(), first, last, keys, vals, proof)
-		//if err == nil {
-		//	t.Fatalf("%d Case %d index %d range: (%d->%d) expect error, got nil", i, testcase, index, start, end-1)
-		//}
+		//nodes, subtrie
+		nodes, subtrie, hasMore, err :=	trie.VerifyRangeProof(tr.Hash(), first, last, keys, vals, proof)
+		if err != nil{
+			if nodes != nil{
+				panic("err != nil && nodes != nil")
+			}
+			if subtrie != nil{
+				panic("err != nil && subtrie != nil")
+			}
+			if hasMore{
+				panic("err != nil && hasMore == true")
+			}
+		}else{
+			if nodes == nil{
+				panic("err == nil && nodes == nil")
+			}
+			if subtrie == nil{
+				panic("err == nil && subtrie == nil")
+			}
+		}
 	}
 	return ok
 }
