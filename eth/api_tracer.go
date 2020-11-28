@@ -20,6 +20,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -413,6 +414,14 @@ func (api *PrivateDebugAPI) TraceBadBlock(ctx context.Context, hash common.Hash,
 	return nil, fmt.Errorf("bad block %#x not found", hash)
 }
 
+func (api *PrivateDebugAPI) Analyse2929Block(ctx context.Context, blockNum int, config *StdTraceConfig) error {
+	block := api.eth.blockchain.GetBlockByNumber(uint64(blockNum))
+	if block == nil {
+		return fmt.Errorf("block %d not found", blockNum)
+	}
+	return api.eip2929Analysis(ctx, block, config)
+}
+
 // StandardTraceBlockToFile dumps the structured logs created during the
 // execution of EVM to the local file system and returns a list of files
 // to the caller.
@@ -515,6 +524,120 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 		return nil, failed
 	}
 	return results, nil
+}
+
+func (api *PrivateDebugAPI) eip2929Analysis(ctx context.Context, block *types.Block, config *StdTraceConfig) error {
+	// Create the parent state database
+	if err := api.eth.engine.VerifyHeader(api.eth.blockchain, block.Header(), true); err != nil {
+		return err
+	}
+	parent := api.eth.blockchain.GetBlock(block.ParentHash(), block.NumberU64()-1)
+	if parent == nil {
+		return fmt.Errorf("parent %#x not found", block.ParentHash())
+	}
+	reexec := defaultTraceReexec
+	if config != nil && config.Reexec != nil {
+		reexec = *config.Reexec
+	}
+	statedb, err := api.computeStateDB(parent, reexec)
+	if err != nil {
+		return err
+	}
+	// Retrieve the tracing configurations, or use default values
+	var (
+		signer      = types.MakeSigner(api.eth.blockchain.Config(), block.Number())
+		mainnetConf = api.eth.blockchain.Config()
+		vmctx       = core.NewEVMBlockContext(block.Header(), api.eth.blockchain, nil)
+	)
+	yoloConf := new(params.ChainConfig)
+	*yoloConf = *mainnetConf
+	yoloConf.YoloV2Block = parent.Number()
+
+	type txResult struct {
+		TxNum  int
+		TxHash common.Hash
+
+		YoloGasUsed uint64
+		YoloSteps   uint64
+		YoloError   bool
+
+		Yolo2xGasUsed uint64
+		Yolo2xSteps   uint64
+		Yolo2xError   bool
+
+		MainGasUsed uint64
+		MainSteps   uint64
+		MainError   bool
+	}
+	var blockRes []*txResult
+	for i, tx := range block.Transactions() {
+		// Prepare the trasaction for un-traced execution
+		var (
+			msg, _    = tx.AsMessage(signer)
+			txContext = core.NewEVMTxContext(msg)
+		)
+		yoloState := statedb.Copy()
+		yolo2xState := statedb.Copy()
+		yoloState.AddAddressToAccessList(msg.From())
+		yolo2xState.AddAddressToAccessList(msg.From())
+		if dst := msg.To(); dst != nil {
+			yoloState.AddAddressToAccessList(*dst)
+			yolo2xState.AddAddressToAccessList(*dst)
+		}
+		for _, addr := range vm.PrecompiledAddressesIstanbul {
+			yoloState.AddAddressToAccessList(addr)
+			yolo2xState.AddAddressToAccessList(addr)
+		}
+		var txRes = &txResult{
+			TxNum:  i,
+			TxHash: tx.Hash(),
+		}
+		var execRes *core.ExecutionResult
+
+		// Execute the tx on yolostate
+		{
+			tracer := &vm.StepLogger{}
+			execRes, err = core.ApplyMessage(vm.NewEVM(vmctx, txContext, yoloState, yoloConf, vm.Config{
+				Debug:  true,
+				Tracer: tracer,
+			}), msg, new(core.GasPool).AddGas(msg.Gas()))
+			txRes.YoloSteps, txRes.YoloGasUsed, txRes.YoloError = tracer.Steps, tracer.GasUsed, execRes.Failed()
+		}
+
+		// Same on yolostate-2x gas
+		{
+			tracer := &vm.StepLogger{}
+			execRes, err = core.ApplyMessage(vm.NewEVM(vmctx, txContext, yolo2xState, yoloConf, vm.Config{
+				Debug:  true,
+				Tracer: tracer,
+			}), msg, new(core.GasPool).AddGas(2*msg.Gas()))
+			txRes.Yolo2xSteps, txRes.Yolo2xGasUsed, txRes.Yolo2xError = tracer.Steps, tracer.GasUsed, execRes.Failed()
+
+		}
+
+		// And run the regular one
+		{
+			tracer := &vm.StepLogger{}
+			execRes, err = core.ApplyMessage(vm.NewEVM(vmctx, txContext, statedb, mainnetConf, vm.Config{
+				Debug:  true,
+				Tracer: tracer,
+			}), msg, new(core.GasPool).AddGas(msg.Gas()))
+			txRes.MainSteps, txRes.MainGasUsed, txRes.MainError = tracer.Steps, tracer.GasUsed, execRes.Failed()
+		}
+		// Finalize the state so any modifications are written to the trie
+		// Only delete empty objects if EIP158/161 (a.k.a Spurious Dragon) is in effect
+		statedb.Finalise(mainnetConf.IsEIP158(block.Number()))
+		blockRes = append(blockRes, txRes)
+	}
+
+	outfile, err := ioutil.TempFile(os.TempDir(), fmt.Sprintf("block_%#x-analysis-", block.Hash().Bytes()[:4]))
+	if err != nil {
+		return err
+	}
+	json.NewEncoder(outfile).Encode(blockRes)
+	outfile.Close()
+	log.Info("Wrote block analysis trace", "file", outfile.Name())
+	return nil
 }
 
 // standardTraceBlockToFile configures a new tracer which uses standard JSON output,

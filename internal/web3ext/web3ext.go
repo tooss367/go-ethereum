@@ -408,6 +408,12 @@ web3._extend({
 			inputFormatter: [null, null]
 		}),
 		new web3._extend.Method({
+			name: 'analyse2929Block',
+			call: 'debug_analyse2929Block',
+			params: 2,
+			inputFormatter: [null, null]
+		}),
+		new web3._extend.Method({
 			name: 'standardTraceBlockToFile',
 			call: 'debug_standardTraceBlockToFile',
 			params: 2,

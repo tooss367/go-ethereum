@@ -363,3 +363,25 @@ func (t *mdLogger) CaptureEnd(output []byte, gasUsed uint64, tm time.Duration, e
 		output, gasUsed, err)
 	return nil
 }
+
+type StepLogger struct {
+	Steps   uint64
+	GasUsed uint64
+}
+
+func (t *StepLogger) CaptureStart(from common.Address, to common.Address, create bool, input []byte, gas uint64, value *big.Int) error {
+	return nil
+}
+
+func (log *StepLogger) CaptureState(env *EVM, pc uint64, op OpCode, gas, cost uint64, memory *Memory, stack *Stack, rStack *ReturnStack, rData []byte, contract *Contract, depth int, err error) error {
+	log.Steps++
+	return nil
+}
+
+func (t *StepLogger) CaptureEnd(output []byte, gasUsed uint64, tm time.Duration, err error) error {
+	t.GasUsed = gasUsed
+	return nil
+}
+func (t *StepLogger) CaptureFault(env *EVM, pc uint64, op OpCode, gas, cost uint64, memory *Memory, stack *Stack, rStack *ReturnStack, contract *Contract, depth int, err error) error {
+	return nil
+}
