@@ -605,12 +605,12 @@ func (api *PrivateDebugAPI) eip2929Analysis(ctx context.Context, block *types.Bl
 			txRes.YoloSteps, txRes.YoloGasUsed, txRes.YoloError = tracer.Steps, tracer.GasUsed, execRes.Failed()
 		}
 
-		// Same on yolostate-2x gas
+		// Same on yolostate-4x gas
 		{
 			gasPrice := msg.GasPrice()
-			gasPrice = gasPrice.Div(msg.GasPrice(), big.NewInt(2))
+			gasPrice = gasPrice.Div(msg.GasPrice(), big.NewInt(4))
 			msg2 := types.NewMessage(msg.From(), msg.To(), msg.Nonce(), msg.Value(),
-				msg.Gas()*2, gasPrice, msg.Data(), true)
+				msg.Gas()*4, gasPrice, msg.Data(), true)
 
 			tracer := &vm.StepLogger{}
 			execRes, err = core.ApplyMessage(vm.NewEVM(vmctx, txContext, yolo2xState, yoloConf, vm.Config{
