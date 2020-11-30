@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math/big"
 	"os"
 	"runtime"
 	"sync"
@@ -606,11 +607,16 @@ func (api *PrivateDebugAPI) eip2929Analysis(ctx context.Context, block *types.Bl
 
 		// Same on yolostate-2x gas
 		{
+			gasPrice := msg.GasPrice()
+			gasPrice = gasPrice.Div(msg.GasPrice(), big.NewInt(2))
+			msg2 := types.NewMessage(msg.From(), msg.To(), msg.Nonce(), msg.Value(),
+				msg.Gas()*2, gasPrice, msg.Data(), true)
+
 			tracer := &vm.StepLogger{}
 			execRes, err = core.ApplyMessage(vm.NewEVM(vmctx, txContext, yolo2xState, yoloConf, vm.Config{
 				Debug:  true,
 				Tracer: tracer,
-			}), msg, new(core.GasPool).AddGas(2*msg.Gas()))
+			}), msg2, new(core.GasPool).AddGas(msg2.Gas()))
 			txRes.Yolo2xSteps, txRes.Yolo2xGasUsed, txRes.Yolo2xError = tracer.Steps, tracer.GasUsed, execRes.Failed()
 
 		}
@@ -630,7 +636,7 @@ func (api *PrivateDebugAPI) eip2929Analysis(ctx context.Context, block *types.Bl
 		blockRes = append(blockRes, txRes)
 	}
 
-	outfile, err := ioutil.TempFile(os.TempDir(), fmt.Sprintf("block_%#x-analysis-", block.Hash().Bytes()[:4]))
+	outfile, err := ioutil.TempFile(os.TempDir(), fmt.Sprintf("block_%d-%#x-analysis-", block.NumberU64(), block.Hash().Bytes()[:4]))
 	if err != nil {
 		return err
 	}
