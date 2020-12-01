@@ -101,7 +101,7 @@ func (f *fuzzer) fuzz() int {
 	for _, kv := range vals {
 		entries = append(entries, kv)
 	}
-	if len(entries) <= 1{
+	if len(entries) <= 1 {
 		return 0
 	}
 	sort.Sort(entries)
@@ -170,22 +170,22 @@ func (f *fuzzer) fuzz() int {
 		}
 		ok = 1
 		//nodes, subtrie
-		nodes, subtrie, hasMore, err :=	trie.VerifyRangeProof(tr.Hash(), first, last, keys, vals, proof)
-		if err != nil{
-			if nodes != nil{
+		nodes, subtrie, hasMore, err := trie.VerifyRangeProof(tr.Hash(), first, last, keys, vals, proof)
+		if err != nil {
+			if nodes != nil {
 				panic("err != nil && nodes != nil")
 			}
-			if subtrie != nil{
+			if subtrie != nil {
 				panic("err != nil && subtrie != nil")
 			}
-			if hasMore{
+			if hasMore {
 				panic("err != nil && hasMore == true")
 			}
-		}else{
-			if nodes == nil{
+		} else {
+			if nodes == nil {
 				panic("err == nil && nodes == nil")
 			}
-			if subtrie == nil{
+			if subtrie == nil {
 				panic("err == nil && subtrie == nil")
 			}
 		}
