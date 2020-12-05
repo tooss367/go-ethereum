@@ -298,9 +298,11 @@ func (hc *HeaderChain) writeHeaders(headers []*types.Header) (result *headerWrit
 
 func (hc *HeaderChain) ValidateHeaderChain(chain []*types.Header, checkFreq int) (int, error) {
 	// Do a sanity check that the provided chain is actually ordered and linked
+	// The hash chain (parent hash matches with child.ParentHash is validated
+	// by the consensus engine (ethash / clique)
 	for i := 1; i < len(chain); i++ {
-		parentHash := chain[i-1].Hash()
-		if chain[i].Number.Uint64() != chain[i-1].Number.Uint64()+1 || chain[i].ParentHash != parentHash {
+		if chain[i].Number.Uint64() != chain[i-1].Number.Uint64()+1 {
+			parentHash := chain[i-1].Hash()
 			// Chain broke ancestry, log a message (programming error) and skip insertion
 			log.Error("Non contiguous header insert", "number", chain[i].Number, "hash", chain[i].Hash(),
 				"parent", chain[i].ParentHash, "prevnumber", chain[i-1].Number, "prevhash", parentHash)
@@ -309,7 +311,7 @@ func (hc *HeaderChain) ValidateHeaderChain(chain []*types.Header, checkFreq int)
 				parentHash.Bytes()[:4], i, chain[i].Number, chain[i].Hash().Bytes()[:4], chain[i].ParentHash[:4])
 		}
 		// If the header is a banned one, straight out abort
-		if BadHashes[parentHash] {
+		if BadHashes[chain[i].ParentHash] {
 			return i - 1, ErrBlacklistedHash
 		}
 	}
@@ -334,15 +336,15 @@ func (hc *HeaderChain) ValidateHeaderChain(chain []*types.Header, checkFreq int)
 
 	// Iterate over the headers and ensure they all check out
 	for i := range chain {
-		// If the chain is terminating, stop processing blocks
-		if hc.procInterrupt() {
-			log.Debug("Premature abort during headers verification")
-			return 0, errors.New("aborted")
-		}
 		// Otherwise wait for headers checks and ensure they pass
 		if err := <-results; err != nil {
 			return i, err
 		}
+	}
+	// If the chain is terminating, stop processing blocks
+	if hc.procInterrupt() {
+		log.Debug("Premature abort during headers verification")
+		return 0, errors.New("aborted")
 	}
 
 	return 0, nil

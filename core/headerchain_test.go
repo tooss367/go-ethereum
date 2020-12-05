@@ -113,3 +113,35 @@ func TestHeaderInsertion(t *testing.T) {
 	// And B becomes even longer
 	testInsert(t, hc, chainB[107:128], CanonStatTy, nil)
 }
+
+// This test checks status reporting of InsertHeaderChain.
+func BenchmarkHeaderValidation(b *testing.B) {
+	var (
+		db      = rawdb.NewMemoryDatabase()
+		genesis = new(Genesis).MustCommit(db)
+	)
+
+	hc, err := NewHeaderChain(db, params.AllEthashProtocolChanges, ethash.NewFaker(), func() bool { return false })
+	if err != nil {
+		b.Fatal(err)
+	}
+	// chain A: G->A1->A2...A128
+	chain := makeHeaderChain(genesis.Header(), 2048, ethash.NewFaker(), db, 10)
+
+	b.Run("checkseals", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if _, err := hc.ValidateHeaderChain(chain, len(chain)); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("noseals", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if _, err := hc.ValidateHeaderChain(chain, 0); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}

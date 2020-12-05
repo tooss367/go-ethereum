@@ -174,15 +174,21 @@ func (ethash *Ethash) verifyHeaderWorker(chain consensus.ChainHeaderReader, head
 	var parent *types.Header
 	if index == 0 {
 		parent = chain.GetHeader(headers[0].ParentHash, headers[0].Number.Uint64()-1)
-	} else if headers[index-1].Hash() == headers[index].ParentHash {
+	} else {//if headers[index-1].Hash() == headers[index].ParentHash {
 		parent = headers[index-1]
 	}
 	if parent == nil {
 		return consensus.ErrUnknownAncestor
 	}
-	if chain.GetHeader(headers[index].Hash(), headers[index].Number.Uint64()) != nil {
-		return nil // known block
-	}
+	//var h common.Hash
+	//if index < len(headers)-1 {
+	//	h = headers[index+1].ParentHash
+	//} else {
+	//	h = headers[index].Hash()
+	//}
+	//if chain.GetHeader(h, headers[index].Number.Uint64()) != nil {
+	//	return nil // known block
+	//}
 	return ethash.verifyHeader(chain, headers[index], parent, false, seals[index])
 }
 
@@ -251,7 +257,8 @@ func (ethash *Ethash) verifyHeader(chain consensus.ChainHeaderReader, header, pa
 	}
 	// Verify the header's timestamp
 	if !uncle {
-		if header.Time > uint64(time.Now().Add(allowedFutureBlockTime).Unix()) {
+		if header.Time > uint64(time.Now().Unix() + 15){
+		//if header.Time > uint64(time.Now().Add(allowedFutureBlockTime).Unix()) {
 			return consensus.ErrFutureBlock
 		}
 	}
@@ -260,7 +267,7 @@ func (ethash *Ethash) verifyHeader(chain consensus.ChainHeaderReader, header, pa
 	}
 	// Verify the block's difficulty based on its timestamp and parent's difficulty
 	expected := ethash.CalcDifficulty(chain, header.Time, parent)
-
+	//
 	if expected.Cmp(header.Difficulty) != 0 {
 		return fmt.Errorf("invalid difficulty: have %v, want %v", header.Difficulty, expected)
 	}
@@ -285,7 +292,10 @@ func (ethash *Ethash) verifyHeader(chain consensus.ChainHeaderReader, header, pa
 		return fmt.Errorf("invalid gas limit: have %d, want %d += %d", header.GasLimit, parent.GasLimit, limit)
 	}
 	// Verify that the block number is parent's +1
-	if diff := new(big.Int).Sub(header.Number, parent.Number); diff.Cmp(big.NewInt(1)) != 0 {
+	if !header.Number.IsUint64(){
+		return consensus.ErrInvalidNumber
+	}
+	if header.Number.Uint64()  != parent.Number.Uint64() +1 {
 		return consensus.ErrInvalidNumber
 	}
 	// Verify the engine specific seal securing the block
@@ -354,16 +364,14 @@ func makeDifficultyCalculator(bombDelay *big.Int) func(time uint64, parent *type
 		//         (parent_diff / 2048 * max((2 if len(parent.uncles) else 1) - ((timestamp - parent.timestamp) // 9), -99))
 		//        ) + 2^(periodCount - 2)
 
-		bigTime := new(big.Int).SetUint64(time)
-		bigParentTime := new(big.Int).SetUint64(parent.Time)
+		//bigTime := new(big.Int).SetUint64(time)
+		//bigParentTime := new(big.Int).SetUint64(parent.Time)
 
 		// holds intermediate values to make the algo easier to read & audit
-		x := new(big.Int)
-		y := new(big.Int)
-
+		x := new(big.Int).SetUint64((time - parent.Time) / 9)
 		// (2 if len(parent_uncles) else 1) - (block_timestamp - parent_timestamp) // 9
-		x.Sub(bigTime, bigParentTime)
-		x.Div(x, big9)
+		//x.Sub(bigTime, bigParentTime)
+		//x.Div(x, big9)
 		if parent.UncleHash == types.EmptyUncleHash {
 			x.Sub(big1, x)
 		} else {
@@ -374,6 +382,7 @@ func makeDifficultyCalculator(bombDelay *big.Int) func(time uint64, parent *type
 			x.Set(bigMinus99)
 		}
 		// parent_diff + (parent_diff / 2048 * max((2 if len(parent.uncles) else 1) - ((timestamp - parent.timestamp) // 9), -99))
+		y := new(big.Int)
 		y.Div(parent.Difficulty, params.DifficultyBoundDivisor)
 		x.Mul(y, x)
 		x.Add(parent.Difficulty, x)

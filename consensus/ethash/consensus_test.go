@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -83,4 +84,25 @@ func TestCalcDifficulty(t *testing.T) {
 			t.Error(name, "failed. Expected", test.CurrentDifficulty, "and calculated", diff)
 		}
 	}
+}
+
+func BenchmarkDifficultyCalc(b *testing.B){
+	// muir glacier
+	bigfunc := makeDifficultyCalculator(big.NewInt(9000000))
+	//uintfunc := makeUint64DifficultyCalculator(9000000)
+
+	diff, _ := big.NewInt(0).SetString("3702867804955209", 10)
+	parent := &types.Header{
+		Number: big.NewInt(9000000 + 1000000),
+		Time: uint64(time.Now().Unix()),
+		Difficulty: diff,
+	}
+	t2 := parent.Time + 14
+	b.Run("big", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++{
+			bigfunc(t2, parent)
+		}
+	})
+
 }
