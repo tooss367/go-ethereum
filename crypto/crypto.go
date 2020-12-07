@@ -83,12 +83,12 @@ func Keccak256Hash(data ...[]byte) (h common.Hash) {
 }
 
 // Keccak512 calculates and returns the Keccak512 hash of the input data.
-func Keccak512(data ...[]byte) []byte {
-	d := sha3.NewLegacyKeccak512()
-	for _, b := range data {
-		d.Write(b)
-	}
-	return d.Sum(nil)
+func Keccak512(data []byte) []byte {
+	b := make([]byte, 64)
+	d := sha3.NewLegacyKeccak512().(KeccakState)
+	d.Write(data)
+	d.Read(b)
+	return b
 }
 
 // CreateAddress creates an ethereum address given the bytes and the nonce
