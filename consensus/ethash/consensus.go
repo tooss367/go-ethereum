@@ -34,6 +34,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
+	"github.com/holiman/uint256"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -327,7 +328,7 @@ func CalcDifficulty(config *params.ChainConfig, time uint64, parent *types.Heade
 	case config.IsHomestead(next):
 		return calcDifficultyHomestead(time, parent)
 	default:
-		return calcDifficultyFrontier(time, parent)
+		return calcDifficultyFrontierU256(time, parent)
 	}
 }
 
@@ -365,6 +366,7 @@ func makeDifficultyCalculator(bombDelay *big.Int) func(time uint64, parent *type
 		// (2 if len(parent_uncles) else 1) - (block_timestamp - parent_timestamp) // 9
 		x.Sub(bigTime, bigParentTime)
 		x.Div(x, big9)
+		//fmt.Printf("[b] (block_timestamp - parent_timestamp) // 9 = %x\n", x)
 		if parent.UncleHash == types.EmptyUncleHash {
 			x.Sub(big1, x)
 		} else {
@@ -374,10 +376,12 @@ func makeDifficultyCalculator(bombDelay *big.Int) func(time uint64, parent *type
 		if x.Cmp(bigMinus99) < 0 {
 			x.Set(bigMinus99)
 		}
+		//fmt.Printf("[b] x after -99 check: %x\n", x)
 		// parent_diff + (parent_diff / 2048 * max((2 if len(parent.uncles) else 1) - ((timestamp - parent.timestamp) // 9), -99))
 		y.Div(parent.Difficulty, params.DifficultyBoundDivisor)
 		x.Mul(y, x)
 		x.Add(parent.Difficulty, x)
+		//fmt.Printf("[b] x: %x\n", x)
 
 		// minimum difficulty can ever be (before exponential factor)
 		if x.Cmp(params.MinimumDifficulty) < 0 {
@@ -389,6 +393,8 @@ func makeDifficultyCalculator(bombDelay *big.Int) func(time uint64, parent *type
 		if parent.Number.Cmp(bombDelayFromParent) >= 0 {
 			fakeBlockNumber = fakeBlockNumber.Sub(parent.Number, bombDelayFromParent)
 		}
+		//fmt.Printf("[b] fakeBlock: %x\n", fakeBlockNumber)
+
 		// for the exponential factor
 		periodCount := fakeBlockNumber
 		periodCount.Div(periodCount, expDiffPeriod)
@@ -396,8 +402,10 @@ func makeDifficultyCalculator(bombDelay *big.Int) func(time uint64, parent *type
 		// the exponential factor, commonly referred to as "the bomb"
 		// diff = diff + 2^(periodCount - 2)
 		if periodCount.Cmp(big1) > 0 {
+			//fmt.Printf("[b] periodCount: %x\n", periodCount)
 			y.Sub(periodCount, big2)
 			y.Exp(big2, y, nil)
+			//fmt.Printf("[b] expDiff: %x\n", y)
 			x.Add(x, y)
 		}
 		return x
@@ -643,4 +651,91 @@ func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header 
 		reward.Add(reward, r)
 	}
 	state.AddBalance(header.Coinbase, reward)
+}
+
+func makeDifficultyCalculatorU256(bombDelay *big.Int) func(time uint64, parent *types.Header) *big.Int {
+	// Note, the calculations below looks at the parent number, which is 1 below
+	// the block number. Thus we remove one from the delay given
+	bombDelayFromParent := bombDelay.Uint64() - 1
+	return func(time uint64, parent *types.Header) *big.Int {
+		// https://github.com/ethereum/EIPs/issues/100.
+		/**
+		pDiff = parent.difficulty
+		BLOCK_DIFF_FACTOR = 9
+		a = pDiff + (pDiff // BLOCK_DIFF_FACTOR) * adj_factor
+		b = min(parent.difficulty, MIN_DIFF)
+		child_diff = max(a,b )
+		*/
+		x := (time - parent.Time) / 9 // (block_timestamp - parent_timestamp) // 9
+		// Now we negate this
+		c := uint64(1) // if parent.unclehash == emptyUncleHashHash
+		if parent.UncleHash != types.EmptyUncleHash {
+			c = 2
+		}
+		xNeg := x >= c
+		if xNeg {
+			// x is now _negative_ adjustment factor
+			x = x - c // - ( (t-p)/p -( 2 or 1) )
+		} else {
+			x = c - x // (2 or 1) - (t-p)/9
+		}
+		if x > 99 {
+			x = 99 // max(x, 99)
+		}
+		// parent_diff + (parent_diff / 2048 * max((2 if len(parent.uncles) else 1) - ((timestamp - parent.timestamp) // 9), -99))
+		y := new(uint256.Int)
+		y.SetFromBig(parent.Difficulty)    // y: p_diff
+		f := y.Clone()                     // f: p_diff
+		z := new(uint256.Int).SetUint64(x) //z : +-adj_factor (either pos or negative)
+		y.Rsh(y, 11)                       // y: p__diff / 2048
+		z.Mul(y, z)                        // z: (p_diff / 2048 ) * (+- adj_factor)
+
+		if xNeg {
+			y.Sub(f, z) // y: parent_diff + parent_diff/2048 * adjustment_factor
+		} else {
+			y.Add(f, z) // y: parent_diff + parent_diff/2048 * adjustment_factor
+		}
+		// minimum difficulty can ever be (before exponential factor)
+		if y.LtUint64(131072) {
+			y.SetUint64(131072)
+		}
+		// calculate a fake block number for the ice-age delay
+		// Specification: https://eips.ethereum.org/EIPS/eip-1234
+		//var fakeBlockNumber uint64 // := new(big.Int)
+		var pNum = parent.Number.Uint64()
+		if bombDelayFromParent < (pNum + 1) {
+			if fakeBlockNumber := pNum - bombDelayFromParent; fakeBlockNumber >= 200000 {
+				z.SetOne()
+				z.Lsh(z, uint(fakeBlockNumber/100000-2))
+				y.Add(z, y)
+			}
+		}
+		return y.ToBig()
+	}
+}
+
+func calcDifficultyFrontierU256(time uint64, parent *types.Header) *big.Int {
+	pDiff := uint256.NewInt()
+	pDiff.SetFromBig(parent.Difficulty) // parent.difficulty
+	adjust := pDiff.Clone()
+	adjust.Rsh(adjust, 11) // parent.difficulty / 2048
+
+	if time-parent.Time < 13 { // params.DurationLimit
+		pDiff.Add(pDiff, adjust)
+	} else {
+		pDiff.Sub(pDiff, adjust)
+	}
+	if pDiff.LtUint64(131072) {
+		pDiff.SetUint64(131072)
+	}
+	if periodCount := (parent.Number.Uint64() + 1) / 100000; periodCount > 1 {
+		// diff = diff + 2^(periodCount - 2)
+		expDiff := adjust.SetOne()
+		expDiff.Lsh(expDiff, uint(periodCount-2)) // expdiff: 2 ^ (periodCount -2)
+		pDiff.Add(pDiff, expDiff)
+		if pDiff.LtUint64(131072) {
+			pDiff.SetUint64(131072)
+		}
+	}
+	return pDiff.ToBig()
 }

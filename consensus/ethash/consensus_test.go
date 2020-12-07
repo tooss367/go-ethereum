@@ -18,7 +18,9 @@ package ethash
 
 import (
 	"encoding/json"
+	"github.com/ethereum/go-ethereum/common"
 	"math/big"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"testing"
@@ -83,4 +85,94 @@ func TestCalcDifficulty(t *testing.T) {
 			t.Error(name, "failed. Expected", test.CurrentDifficulty, "and calculated", diff)
 		}
 	}
+}
+
+func TestDifficultyCalculator(t *testing.T) {
+	x := makeDifficultyCalculator(big.NewInt(1000000))
+	y := makeDifficultyCalculatorU256(big.NewInt(1000000))
+	rand.Seed(2)
+	for i := 0; i < 50000; i++ {
+		// 1 to 300 seconds diff
+		var timeDelta = uint64(1 + rand.Uint32()%300)
+		var difficulty = make([]byte, 10)
+		rand.Read(difficulty)
+		h := &types.Header{
+			UncleHash:  types.EmptyUncleHash,
+			Difficulty: new(big.Int).SetBytes(difficulty),
+			Number:     new(big.Int).SetUint64(rand.Uint64() % 50_000_000),
+			Time:       rand.Uint64() - timeDelta,
+		}
+		exp := x(h.Time+timeDelta, h)
+		got := y(h.Time+timeDelta, h)
+		if exp.BitLen() > 256 {
+			continue
+		}
+		if exp.Cmp(got) != 0 {
+			t.Fatalf("test %d: error, got \n%x\n, exp \n%x\nHeader: \n%v\n", i, got, exp, h)
+		}
+	}
+}
+
+func TestDifficultyCalculatorFrontier(t *testing.T) {
+	x := calcDifficultyFrontier
+	y := calcDifficultyFrontierU256
+	rand.Seed(2)
+	for i := 0; i < 500000; i++ {
+		// 1 to 300 seconds diff
+		var timeDelta = uint64(1 + rand.Uint32()%300)
+		var difficulty = make([]byte, 10)
+		rand.Read(difficulty)
+		h := &types.Header{
+			UncleHash:  types.EmptyUncleHash,
+			Difficulty: new(big.Int).SetBytes(difficulty),
+			Number:     new(big.Int).SetUint64(rand.Uint64() % 50_000_000),
+			Time:       rand.Uint64() - timeDelta,
+		}
+		exp := x(h.Time+timeDelta, h)
+		got := y(h.Time+timeDelta, h)
+		if exp.BitLen() > 256 {
+			continue
+		}
+		if exp.Cmp(got) != 0 {
+			t.Fatalf("test %d: error, got \n%x\n, exp \n%x\nHeader: \n%v\n", i, got, exp, h)
+		}
+	}
+}
+
+func BenchmarkDifficultyCalculator(b *testing.B) {
+	x1 := makeDifficultyCalculator(big.NewInt(1000000))
+	x2 := makeDifficultyCalculatorU256(big.NewInt(1000000))
+	x3 := calcDifficultyFrontier
+	x4 := calcDifficultyFrontierU256
+	h := &types.Header{
+		ParentHash: common.Hash{},
+		UncleHash:  types.EmptyUncleHash,
+		Difficulty: big.NewInt(0xffffff),
+		Number:     big.NewInt(500000),
+		Time:       1000000,
+	}
+	b.Run("big", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			x1(1000014, h)
+		}
+	})
+	b.Run("u256", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			x2(1000014, h)
+		}
+	})
+	b.Run("big-frontier", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			x3(1000014, h)
+		}
+	})
+	b.Run("u256-frontier", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			x4(1000014, h)
+		}
+	})
 }
