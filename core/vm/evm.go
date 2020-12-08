@@ -21,7 +21,6 @@ import (
 	"math/big"
 	"sync/atomic"
 	"time"
-	"fmt"
 	"database/sql"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -413,22 +412,27 @@ func openDB() {
 	var err error
 	codeDB, err = sql.Open("sqlite3", "/tmp/codedb.sqlite")
 	if err != nil { panic(err) }
-	codeDB.Exec("CREATE TABLE IF NOT EXISTS code (address VARCHAR(42) not null primary key, creationCode BLOB, deployedCodeHash VARCHAR(42));")
-	codeDB.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_code_address ON code(address);")
-	codeDB.Exec("CREATE INDEX IF NOT EXISTS idx_code_codeHash ON code(deployedCodeHash);")
+	codeDB.Exec("CREATE TABLE IF NOT EXISTS creationCode (id INTEGER NOT NULL PRIMARY KEY, code BLOB);")
+	codeDB.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_creationCode_code ON creationCode(code);")
+	codeDB.Exec("CREATE TABLE IF NOT EXISTS codeHash (id INTEGER NOT NULL PRIMARY KEY, hash VARCHAR(42));")
+	codeDB.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_codeHash_hash ON codeHash(hash);")
+	codeDB.Exec(`CREATE TABLE IF NOT EXISTS main (
+		address VARCHAR(42) NOT NULL PRIMARY KEY,
+		creationCode INTEGER NOT NULL,
+		deployedCodeHash INTEGER NOT NULL,
+		FOREIGN KEY (creationCode) REFERENCES creationCode(id),
+		FOREIGN KEY (deployedCodeHash) REFERENCES codeHash(id));`)
 }
 
 func storeCode(address string, creationCode []byte, deployedCodeHash string) {
 	if codeDB == nil { openDB() }
-	statement := fmt.Sprintf(
-		`INSERT INTO code
-		(address, creationCode, deployedCodeHash)
-		VALUES
-		(?, ?, ?)
-		ON CONFLICT (address)
-		DO UPDATE SET creationCode=?, deployedCodeHash=?
-		WHERE address = ?`)
-	_, err := codeDB.Exec(statement, address, creationCode, deployedCodeHash, creationCode, deployedCodeHash, address)
+	_, err := codeDB.Exec(`
+		INSERT INTO creationCode(code) VALUES (?) ON CONFLICT DO NOTHING;
+		INSERT INTO codeHash(hash) VALUES (?) ON CONFLICT DO NOTHING;
+		INSERT OR REPLACE INTO main(address, creationCode, deployedCodeHash)
+			SELECT ?, creationCode.id, codeHash.id FROM creationCode, codeHash
+			WHERE creationCode.code = ? AND codeHash.hash = ?;`,
+		creationCode, deployedCodeHash, address, creationCode, deployedCodeHash)
 	if err != nil { panic(err) }
 }
 
