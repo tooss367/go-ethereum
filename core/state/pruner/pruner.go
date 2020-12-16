@@ -179,13 +179,13 @@ func prune(maindb ethdb.Database, stateBloom *stateBloom, start time.Time) error
 	// Note for small pruning, the compaction is skipped.
 	if count >= rangeCompactionThreshold {
 		cstart := time.Now()
-		log.Info("Start compacting the database")
+		log.Info("Database compaction started")
 		if err := maindb.Compact(rstart, rlimit); err != nil {
-			log.Error("Failed to compact the whole database", "error", err)
+			log.Error("Database compaction failed", "error", err)
 		}
-		log.Info("Compacted the whole database", "elapsed", common.PrettyDuration(time.Since(cstart)))
+		log.Info("Database compaction finished", "elapsed", common.PrettyDuration(time.Since(cstart)))
 	}
-	log.Info("Successfully prune the state", "pruned", size, "elapsed", common.PrettyDuration(time.Since(start)))
+	log.Info("State pruning successful", "pruned", size, "elapsed", common.PrettyDuration(time.Since(start)))
 	return nil
 }
 
@@ -243,7 +243,7 @@ func (p *Pruner) Prune(root common.Hash) error {
 			if blob := rawdb.ReadTrieNode(p.db, layers[i].Root()); len(blob) != 0 {
 				root = layers[i].Root()
 				found = true
-				log.Info("Pick middle-layer as the pruning target", "root", root, "depth", i)
+				log.Info("Selecting middle-layer as the pruning target", "root", root, "depth", i)
 				break
 			}
 		}
@@ -255,9 +255,9 @@ func (p *Pruner) Prune(root common.Hash) error {
 		}
 	} else {
 		if len(layers) > 0 {
-			log.Info("Pick bottom-most difflayer as the pruning target", "root", root, "height", p.headHeader.Number.Uint64()-127)
+			log.Info("Selecting bottom-most difflayer as the pruning target", "root", root, "height", p.headHeader.Number.Uint64()-127)
 		} else {
-			log.Info("Pick user-specified state as the pruning target", "root", root)
+			log.Info("Selecting user-specified state as the pruning target", "root", root)
 		}
 	}
 	// Before start the pruning, delete the clean trie cache first.
@@ -281,7 +281,7 @@ func (p *Pruner) Prune(root common.Hash) error {
 	if err := p.stateBloom.Commit(filterName); err != nil {
 		return err
 	}
-	log.Info("Committed the state bloom filter", "name", filterName)
+	log.Info("State bloom filter committed", "name", filterName)
 
 	if err := prune(p.db, p.stateBloom, start); err != nil {
 		return err
@@ -342,7 +342,7 @@ func RecoverPruning(datadir string, db ethdb.Database, trieCachePath string) err
 	if err != nil {
 		return err
 	}
-	log.Info("Loaded the state bloom filter", "path", stateBloomPath)
+	log.Info("Loaded state bloom filter", "path", stateBloomPath)
 
 	// Before start the pruning, delete the clean trie cache first.
 	// It's necessary otherwise in the next restart we will hit the
