@@ -20,7 +20,6 @@ import (
 	"errors"
 	"hash/fnv"
 	"os"
-	"path/filepath"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -89,15 +88,11 @@ func NewStateBloomFromDisk(filename string) (*stateBloom, error) {
 // Commit flushes the bloom filter content into the disk and marks the bloom
 // as complete.
 func (bloom *stateBloom) Commit(filename string) error {
-	// Firstly, flush the bloom filter to the temporary file
-	_, err := bloom.bloom.WriteFile(filename + ".tmp")
+	_, err := bloom.bloom.WriteFile(filename)
 	if err != nil {
 		return err
 	}
-	// Secondly, fsync the file. In the bloomfilter library
-	// there is no guarantee the file is actually flushed
-	// into the disk
-	f, err := os.Open(filename + ".tmp")
+	f, err := os.Open(filename)
 	if err != nil {
 		return err
 	}
@@ -105,15 +100,6 @@ func (bloom *stateBloom) Commit(filename string) error {
 		return err
 	}
 	f.Close()
-	// Thirdly, rename the file.
-	if err := rename(filename+".tmp", filename); err != nil {
-		return err
-	}
-	// Lastly, fsync the directory to ensure all pending
-	// rename operations are transferred to disk
-	if err := syncDir(filepath.Dir(filename)); err != nil {
-		return err
-	}
 	return nil
 }
 
