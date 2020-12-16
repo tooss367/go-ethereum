@@ -362,7 +362,7 @@ func InspectDatabase(db ethdb.Database) error {
 		default:
 			var accounted bool
 			for _, meta := range [][]byte{
-				databaseVerisionKey, headHeaderKey, headBlockKey, headFastBlockKey, lastPivotKey,
+				databaseVersionKey, headHeaderKey, headBlockKey, headFastBlockKey, lastPivotKey,
 				fastTrieProgressKey, snapshotRootKey, snapshotJournalKey, snapshotGeneratorKey,
 				snapshotRecoveryKey, txIndexTailKey, fastTxLookupLimitKey, uncleanShutdownKey,
 			} {
