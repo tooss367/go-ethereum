@@ -113,11 +113,17 @@ func NewDumper(db ethdb.Database, root common.Hash, datadir, trieCachePath strin
 }
 
 type keyDumper struct {
-	f *os.File
+	state *os.File
+	code  *os.File
 }
 
 func (k *keyDumper) Put(key []byte, value []byte) error {
-	k.f.Write(key)
+	//	fmt.Printf("Writing key, size %d %x\n", len(key), key)
+	if len(key) == 32 {
+		k.state.Write(key)
+	} else {
+		k.code.Write(key)
+	}
 	return nil
 }
 
@@ -125,8 +131,8 @@ func (k *keyDumper) Delete(key []byte) error {
 	panic("implement me")
 }
 
-func (p *Dumper) Dump(root common.Hash, outfile *os.File) error {
-	db := &keyDumper{outfile}
+func (p *Dumper) Dump(root common.Hash, outfile, codeFile *os.File) error {
+	db := &keyDumper{outfile, codeFile}
 	start := time.Now()
 	if err := snapshot.GenerateTrie(p.snaptree, root, p.db, db); err != nil {
 		return err

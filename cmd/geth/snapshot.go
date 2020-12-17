@@ -181,21 +181,45 @@ func dumpStateKeys(ctx *cli.Context) error {
 		return fmt.Errorf("Failed to create the output: %v", err)
 	}
 	defer outFile.Close()
+	codeFile, err := os.Create(fmt.Sprintf("%v.code", ctx.Args()[1]))
+	if err != nil {
+		return fmt.Errorf("Failed to create the output: %v", err)
+	}
+	defer codeFile.Close()
+	stack, config := makeConfigNode(ctx)
+	defer stack.Close()
+	chain, chaindb := utils.MakeChain(ctx, stack, true)
+	defer chaindb.Close()
+	block := chain.CurrentBlock()
+	fmt.Printf("CurrentBlock\n")
+	i := 0
+	for block != nil && i < 5 {
+		present, _ := chaindb.Has(block.Root().Bytes())
+		fmt.Printf(" number: %d state root: 0x%x  present: %v \n", block.NumberU64(), block.Root(), present)
+		block = chain.GetBlockByNumber(block.NumberU64() - 1)
+		i++
+	}
+	i = 0
+	fmt.Printf("CurrentHead\n")
+	head := chain.CurrentHeader()
+	for head != nil && i < 5 {
+		present, _ := chaindb.Has(head.Root.Bytes())
+		fmt.Printf(" number: %d state root: 0x%x present: %v\n", head.Number, head.Root, present)
+		head = chain.GetHeaderByNumber(head.Number.Uint64() - 1)
+		i++
+	}
 	var targetRoot common.Hash
 	targetRoot, err = parseRoot(ctx.Args()[0])
 	if err != nil {
 		return fmt.Errorf("Failed to resolve state root %v", err)
 	}
-	stack, config := makeConfigNode(ctx)
-	defer stack.Close()
-	_, chaindb := utils.MakeChain(ctx, stack, true)
-	defer chaindb.Close()
+
 	// TODO fix this, no currentblock needed
 	dumper, err := pruner.NewDumper(chaindb, targetRoot, stack.ResolvePath(""), stack.ResolvePath(config.Eth.TrieCleanCacheJournal), ctx.GlobalUint64(utils.BloomFilterSizeFlag.Name))
 	if err != nil {
 		return fmt.Errorf("Failed to construct dumper  %v", err)
 	}
-	if err = dumper.Dump(targetRoot, outFile); err != nil {
+	if err = dumper.Dump(targetRoot, outFile, codeFile); err != nil {
 		return fmt.Errorf("Failed to dump state %v", err)
 	}
 	return nil

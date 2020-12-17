@@ -693,7 +693,7 @@ var (
 		Usage: "Enable metrics export/push to an external InfluxDB database",
 	}
 	MetricsInfluxDBEndpointFlag = cli.StringFlag{
-		Name:  "metrics.influxdb.endpoint",
+		Name:  "metrics.influxdd/binb.endpoint",
 		Usage: "InfluxDB API endpoint to report metrics to",
 		Value: "http://localhost:8086",
 	}
