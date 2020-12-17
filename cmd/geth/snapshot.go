@@ -18,6 +18,8 @@ package main
 
 import (
 	"bytes"
+	"fmt"
+	"os"
 	"time"
 
 	"github.com/ethereum/go-ethereum/cmd/utils"
@@ -76,6 +78,28 @@ WARNING: It's necessary to delete the trie clean cache after the pruning.
 If you specify another directory for the trie clean cache via "--cache.trie.journal"
 during the use of Geth, please also specify it here for correct deletion. Otherwise
 the trie clean cache with default directory will be deleted.
+`,
+			},
+			{
+				Name:      "dump-keys",
+				Usage:     "Load snapshot, dump out all trienode keys to a file",
+				ArgsUsage: "<root>",
+				Action:    utils.MigrateFlags(dumpStateKeys),
+				Category:  "MISCELLANEOUS COMMANDS",
+				Flags: []cli.Flag{
+					utils.DataDirFlag,
+					utils.RopstenFlag,
+					utils.RinkebyFlag,
+					utils.GoerliFlag,
+					utils.LegacyTestnetFlag,
+					utils.CacheTrieJournalFlag,
+					utils.BloomFilterSizeFlag,
+				},
+				Description: `
+geth snapshot dump-keys <state-root> <file>
+
+Geth will iterate the snapshot corresponding to the given root, and dump out all keys
+into the given file. 
 `,
 			},
 			{
@@ -146,6 +170,36 @@ It's also usable without snapshot enabled.
 		},
 	}
 )
+
+func dumpStateKeys(ctx *cli.Context) error {
+
+	if ctx.NArg() != 2 {
+		return fmt.Errorf("Needs two arguments")
+	}
+	outFile, err := os.Create(ctx.Args()[1])
+	if err != nil {
+		return fmt.Errorf("Failed to create the output: %v", err)
+	}
+	defer outFile.Close()
+	var targetRoot common.Hash
+	targetRoot, err = parseRoot(ctx.Args()[0])
+	if err != nil {
+		return fmt.Errorf("Failed to resolve state root %v", err)
+	}
+	stack, config := makeConfigNode(ctx)
+	defer stack.Close()
+	_, chaindb := utils.MakeChain(ctx, stack, true)
+	defer chaindb.Close()
+	// TODO fix this, no currentblock needed
+	dumper, err := pruner.NewDumper(chaindb, targetRoot, stack.ResolvePath(""), stack.ResolvePath(config.Eth.TrieCleanCacheJournal), ctx.GlobalUint64(utils.BloomFilterSizeFlag.Name))
+	if err != nil {
+		return fmt.Errorf("Failed to construct dumper  %v", err)
+	}
+	if err = dumper.Dump(targetRoot, outFile); err != nil {
+		return fmt.Errorf("Failed to dump state %v", err)
+	}
+	return nil
+}
 
 func pruneState(ctx *cli.Context) error {
 	stack, config := makeConfigNode(ctx)

@@ -78,6 +78,63 @@ type Pruner struct {
 	snaptree      *snapshot.Tree
 }
 
+type Dumper struct {
+	db            ethdb.Database
+	stateBloom    *stateBloom
+	datadir       string
+	trieCachePath string
+	root          common.Hash
+	snaptree      *snapshot.Tree
+}
+
+// NewPruner creates the dumper instance.
+func NewDumper(db ethdb.Database, root common.Hash, datadir, trieCachePath string, bloomSize uint64) (*Dumper, error) {
+	snaptree, err := snapshot.New(db, trie.NewDatabase(db), 256, root, false, false, false)
+	if err != nil {
+		return nil, err // The relevant snapshot(s) might not exist
+	}
+	// Sanitize the bloom filter size if it's too small.
+	if bloomSize < 256 {
+		log.Warn("Sanitizing bloomfilter size", "provided(MB)", bloomSize, "updated(MB)", 256)
+		bloomSize = 256
+	}
+	stateBloom, err := newStateBloomWithSize(bloomSize)
+	if err != nil {
+		return nil, err
+	}
+	return &Dumper{
+		db:            db,
+		stateBloom:    stateBloom,
+		datadir:       datadir,
+		trieCachePath: trieCachePath,
+		root:          root,
+		snaptree:      snaptree,
+	}, nil
+}
+
+type keyDumper struct {
+	f *os.File
+}
+
+func (k *keyDumper) Put(key []byte, value []byte) error {
+	k.f.Write(key)
+	return nil
+}
+
+func (k *keyDumper) Delete(key []byte) error {
+	panic("implement me")
+}
+
+func (p *Dumper) Dump(root common.Hash, outfile *os.File) error {
+	db := &keyDumper{outfile}
+	start := time.Now()
+	if err := snapshot.GenerateTrie(p.snaptree, root, p.db, db); err != nil {
+		return err
+	}
+	log.Info("Done", "elapsed", time.Since(start))
+	return nil
+}
+
 // NewPruner creates the pruner instance.
 func NewPruner(db ethdb.Database, headHeader *types.Header, datadir, trieCachePath string, bloomSize uint64) (*Pruner, error) {
 	snaptree, err := snapshot.New(db, trie.NewDatabase(db), 256, headHeader.Root, false, false, false)
