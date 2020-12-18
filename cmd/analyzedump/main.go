@@ -2,8 +2,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"os"
 	"sort"
@@ -11,7 +14,9 @@ import (
 
 func main() {
 	//doSort()
-	doMerge()
+	//	doMerge()
+	//doSquash()
+	checkFnv()
 }
 
 type fileIterator struct {
@@ -214,6 +219,108 @@ func uniq(f *os.File, fName string, keyLen int) error {
 	}
 	if err := flush(); err != nil {
 		return err
+	}
+	return nil
+}
+
+func doSquash() error {
+	if len(os.Args) < 2 {
+		fmt.Fprintf(os.Stderr, "Need filename")
+		os.Exit(1)
+	}
+	var (
+		inputFile  *os.File
+		outputFile *os.File
+		err        error
+	)
+	// Create a list of files to merge
+	basename := os.Args[1]
+	inputFile, err = os.Open(fmt.Sprintf("%v.merged", basename))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v", err)
+		os.Exit(1)
+	}
+	defer inputFile.Close()
+	outputFile, err = os.Create(fmt.Sprintf("%v.merged.uniq", basename))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v", err)
+		os.Exit(1)
+	}
+	defer outputFile.Close()
+	prev := make([]byte, 32)
+	key := make([]byte, 32)
+	var skipped uint64
+	var written uint64
+	for {
+		_, err := inputFile.Read(key)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if bytes.Equal(prev, key) {
+			skipped++
+			continue
+		}
+		copy(prev, key)
+		outputFile.Write(key)
+		written++
+	}
+	fmt.Printf("Wrote %d entries, skipped %d entries\n", written, skipped)
+	return nil
+}
+
+func checkFnv() error {
+	if len(os.Args) < 2 {
+		fmt.Fprintf(os.Stderr, "Need filename")
+		os.Exit(1)
+	}
+	var (
+		inputFile *os.File
+		err       error
+	)
+	inputFile, err = os.Open(fmt.Sprintf("%v.merged.uniq", os.Args[1]))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v", err)
+		os.Exit(1)
+	}
+	defer inputFile.Close()
+	key := make([]byte, 32)
+	hasher := fnv.New64a()
+	var sum1 = func(k []byte) uint64 {
+		hasher.Reset()
+		hasher.Write(k)
+		return hasher.Sum64()
+	}
+	var sum2 = func(k []byte) uint64 {
+		return binary.BigEndian.Uint64(k)
+	}
+	var a uint64
+	var b uint64
+	{
+		search, err := hex.DecodeString("bf5c69e35f60242e98657683d31b3ee7f90dbe0f649c75b5bfaffa96c966d638")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v", err)
+			return nil
+		}
+		a = sum1(search)
+		b = sum2(search)
+	}
+	fmt.Printf("fnv hash: %v\n", a)
+	fmt.Printf("kck hash: %v\n", b)
+
+	for {
+		_, err := inputFile.Read(key)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if sum1(key) == a {
+			fmt.Printf("Duplicate fnv: %x (fnvhash %d kckhash %d)\n", key, sum1(key), sum2(key))
+		}
+		if sum2(key) == b {
+			fmt.Printf("Duplicate kck: %x (fnvhash %d kckhash %d)\n", key, sum1(key), sum2(key))
+		}
 	}
 	return nil
 }
