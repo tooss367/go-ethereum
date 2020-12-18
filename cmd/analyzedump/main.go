@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"time"
 )
 
 func main() {
@@ -326,7 +327,8 @@ func checkFnv() error {
 		fmt.Fprintf(os.Stderr, "Error: %v", err)
 		return nil
 	}
-
+	t := time.Now()
+	i := 0
 	for {
 		_, err := inputFile.Read(key)
 		if errors.Is(err, io.EOF) {
@@ -342,9 +344,18 @@ func checkFnv() error {
 		}
 		fnv.AddHash(fnvHash)
 		kck.AddHash(kckHash)
+		i++
+		if time.Since(t) > 10 * time.Second{
+			fmt.Printf("%d done\n", i)
+			t = time.Now()
+		}
 	}
-	fmt.Printf("kck FP probability: %v\n", 1-kck.FalsePosititveProbability())
 	fmt.Printf("fnv FP probability: %v\n", 1-fnv.FalsePosititveProbability())
+	fmt.Printf("kck FP probability: %v\n", 1-kck.FalsePosititveProbability())
+
+	fmt.Printf("fnv filled-ratio: %v\n", fnv.PreciseFilledRatio())
+	fmt.Printf("kck filled-ratio: %v\n", kck.PreciseFilledRatio())
+
 
 	if fnv.ContainsHash(a) {
 		fmt.Printf("FNV bloom filter produces 'hit' for the stateroot\n")
