@@ -2,15 +2,21 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/holiman/bloomfilter"
 	"hash/fnv"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
+	"math/bits"
 	"os"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -18,7 +24,8 @@ func main() {
 	//doSort()
 	//	doMerge()
 	//doSquash()
-	checkFnv()
+	//	checkFnv()
+	convertBloom()
 }
 
 type fileIterator struct {
@@ -347,7 +354,7 @@ func checkFnv() error {
 		fnv.AddHash(fnvHash)
 		kck.AddHash(kckHash)
 		i++
-		if time.Since(t) > 10 * time.Second{
+		if time.Since(t) > 10*time.Second {
 			fmt.Printf("%d done\n", i)
 			t = time.Now()
 		}
@@ -357,7 +364,6 @@ func checkFnv() error {
 
 	fmt.Printf("fnv filled-ratio: %v\n", fnv.PreciseFilledRatio())
 	fmt.Printf("kck filled-ratio: %v\n", kck.PreciseFilledRatio())
-
 
 	if fnv.ContainsHash(a) {
 		fmt.Printf("FNV bloom filter produces 'hit' for the stateroot\n")
@@ -371,5 +377,63 @@ func checkFnv() error {
 	}
 	fnv.WriteFile("fnv.bloom.gz")
 	kck.WriteFile("kck.bloom.gz")
+	return nil
+}
+
+func convertBloom() error {
+	if len(os.Args) < 2 {
+		fmt.Fprintf(os.Stderr, "Need filename\n")
+		os.Exit(1)
+	}
+	if !strings.HasSuffix(os.Args[1], "gz") {
+		fmt.Fprintf(os.Stderr, "not a bloom?\n")
+		os.Exit(1)
+	}
+	var (
+		err    error
+		f      *os.File
+		reader *gzip.Reader
+	)
+	f, err = os.Open(os.Args[1])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return err
+	}
+	defer f.Close()
+
+	reader, err = gzip.NewReader(f)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return err
+	}
+	defer reader.Close()
+	// 2Gb -> 2048 * 1024 pixels,
+	// 2M pixels
+	// 1024 bits per pixesl: 128 bytes
+	img := image.NewGray16(image.Rect(0, 0, 2048, 1024))
+	for y := 0; y < 1024; y++ {
+		for x := 0; x < 2048; x++ {
+			sum := 0
+			val := make([]byte, 128)
+			reader.Read(val)
+			for _, v := range val {
+				sum += bits.OnesCount8(v)
+			}
+			col := uint64(0xFFFF) * uint64(sum) / uint64(1024)
+			img.SetGray16(x, y, color.Gray16{Y: uint16(col)})
+		}
+	}
+	var out *os.File
+	out, err = os.Create(fmt.Sprintf("%v.png", os.Args[1]))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return err
+	}
+	defer out.Close()
+	err = png.Encode(out, img)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return err
+	}
 	return nil
 }
