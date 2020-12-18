@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/holiman/bloomfilter"
 	"hash/fnv"
 	"io"
 	"os"
@@ -310,17 +311,50 @@ func checkFnv() error {
 	fmt.Printf("fnv hash: %v\n", a)
 	fmt.Printf("kck hash: %v\n", b)
 
+	var fnv *bloomfilter.Filter
+	var kck *bloomfilter.Filter
+
+	fnv, err = bloomfilter.New(2048*1024*1024*8, 4)
+	//fnv, err = bloomfilter.New(256, 4)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v", err)
+		return nil
+	}
+	kck, err = bloomfilter.New(2048*1024*1024*8, 4)
+	//kck, err = bloomfilter.New(256, 4)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v", err)
+		return nil
+	}
+
 	for {
 		_, err := inputFile.Read(key)
 		if errors.Is(err, io.EOF) {
 			break
 		}
-		if sum1(key) == a {
-			fmt.Printf("Duplicate fnv: %x (fnvhash %d kckhash %d)\n", key, sum1(key), sum2(key))
+		fnvHash := sum1(key)
+		kckHash := sum2(key)
+		if fnvHash == a {
+			fmt.Printf("Duplicate fnv: %x (fnvhash %d kckhash %d)\n", key, fnvHash, kckHash)
 		}
-		if sum2(key) == b {
-			fmt.Printf("Duplicate kck: %x (fnvhash %d kckhash %d)\n", key, sum1(key), sum2(key))
+		if kckHash == b {
+			fmt.Printf("Duplicate kck: %x (fnvhash %d kckhash %d)\n", key, fnvHash, kckHash)
 		}
+		fnv.AddHash(fnvHash)
+		kck.AddHash(kckHash)
+	}
+	fmt.Printf("kck FP probability: %v\n", 1-kck.FalsePosititveProbability())
+	fmt.Printf("fnv FP probability: %v\n", 1-fnv.FalsePosititveProbability())
+
+	if fnv.ContainsHash(a) {
+		fmt.Printf("FNV bloom filter produces 'hit' for the stateroot\n")
+	} else {
+		fmt.Printf("FNV bloom filter does NOT produce 'hit' for the stateroot\n")
+	}
+	if kck.ContainsHash(b) {
+		fmt.Printf("Keccak bloom filter produces 'hit' for the stateroot\n")
+	} else {
+		fmt.Printf("Keccak bloom filter does NOT produce 'hit' for the stateroot\n")
 	}
 	return nil
 }
