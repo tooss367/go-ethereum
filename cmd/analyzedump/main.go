@@ -26,7 +26,8 @@ func main() {
 	//	doMerge()
 	//doSquash()
 	//	checkFnv()
-	convertBloom()
+	//convertBloom()
+	testBloom()
 }
 
 type fileIterator struct {
@@ -453,6 +454,8 @@ func testBloom() error {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return err
 	}
+	fmt.Printf("Bloom functions: %v\n", f.K())
+	fmt.Printf("Bloom bits: %v\n", f.M())
 	hits := 0
 	numTests := 100000
 	for i := 0; i < numTests; i++ {
