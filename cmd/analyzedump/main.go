@@ -14,6 +14,7 @@ import (
 	"image/png"
 	"io"
 	"math/bits"
+	"math/rand"
 	"os"
 	"sort"
 	"strings"
@@ -435,5 +436,30 @@ func convertBloom() error {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return err
 	}
+	return nil
+}
+
+func testBloom() error {
+	if len(os.Args) < 2 {
+		fmt.Fprintf(os.Stderr, "Need filename\n")
+		os.Exit(1)
+	}
+	if !strings.HasSuffix(os.Args[1], "gz") {
+		fmt.Fprintf(os.Stderr, "not a bloom?\n")
+		os.Exit(1)
+	}
+	f, _, err := bloomfilter.ReadFile(os.Args[1])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return err
+	}
+	hits := 0
+	numTests := 100000
+	for i := 0; i < numTests; i++ {
+		if f.ContainsHash(rand.Uint64()) {
+			hits++
+		}
+	}
+	fmt.Printf("Hit rate (100K random tests): %02f %%\n", 100*float64(hits)/float64(numTests))
 	return nil
 }
