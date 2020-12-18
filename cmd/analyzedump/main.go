@@ -315,12 +315,14 @@ func checkFnv() error {
 	var fnv *bloomfilter.Filter
 	var kck *bloomfilter.Filter
 
+	// 2 GB
 	fnv, err = bloomfilter.New(2048*1024*1024*8, 4)
 	//fnv, err = bloomfilter.New(256, 4)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v", err)
 		return nil
 	}
+	// 2 GB
 	kck, err = bloomfilter.New(2048*1024*1024*8, 4)
 	//kck, err = bloomfilter.New(256, 4)
 	if err != nil {
@@ -367,5 +369,7 @@ func checkFnv() error {
 	} else {
 		fmt.Printf("Keccak bloom filter does NOT produce 'hit' for the stateroot\n")
 	}
+	fnv.WriteFile("fnv.bloom.gz")
+	kck.WriteFile("kck.bloom.gz")
 	return nil
 }
