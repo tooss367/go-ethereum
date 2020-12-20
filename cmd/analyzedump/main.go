@@ -26,9 +26,9 @@ func main() {
 	//doSort()
 	//	doMerge()
 	//doSquash()
-	checkFnv()
+	//checkFnv()
 	//convertBloom()
-	//testBloom()
+	testBloom()
 }
 
 type fileIterator struct {
@@ -362,8 +362,8 @@ func checkFnv() error {
 			t = time.Now()
 		}
 	}
-	fmt.Printf("fnv FP probability: %v\n", 1-fnv.FalsePosititveProbability())
-	fmt.Printf("kck FP probability: %v\n", 1-kck.FalsePosititveProbability())
+	fmt.Printf("fnv FP probability: %v\n", fnv.FalsePosititveProbability())
+	fmt.Printf("kck FP probability: %v\n", kck.FalsePosititveProbability())
 
 	fmt.Printf("fnv filled-ratio: %v\n", fnv.PreciseFilledRatio())
 	fmt.Printf("kck filled-ratio: %v\n", kck.PreciseFilledRatio())
