@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/holiman/bloomfilter"
 	"hash/fnv"
 	"image"
 	"image/color"
@@ -19,15 +18,17 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	bloomfilter "github.com/holiman/bloomfilter/v2"
 )
 
 func main() {
 	//doSort()
 	//	doMerge()
 	//doSquash()
-	//	checkFnv()
+	checkFnv()
 	//convertBloom()
-	testBloom()
+	//testBloom()
 }
 
 type fileIterator struct {
