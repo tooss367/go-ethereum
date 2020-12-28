@@ -20,6 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
+	"sync"
 )
 
 var (
@@ -37,136 +38,188 @@ var (
 // items on two channels, and does trie-loading of the items.
 // The goal is to get as much useful content into the caches as possible
 type TriePrefetcher struct {
-	requestCh  chan (fetchRequest) // Chan to receive requests for data to fetch
-	cmdCh      chan (*cmd)         // Chan to control activity, pause/new root
-	quitCh     chan (struct{})
-	deliveryCh chan (struct{})
-	db         Database
+	storageReqCh chan *storageFetchRequest
+	accountReqCh chan *accountFetchRequest
+
+	accountCtrlCh chan (common.Hash) // Chan to control activity, pause/new root
+	storageCtrlCh chan (common.Hash) // Chan to control activity, pause/new root
+	quitCh        chan (struct{})    // Chan to signal when it's time to exit
+	deliveryCh    chan (struct{})
+	db            Database
 
 	paused bool
 
 	storageTries    map[common.Hash]Trie
 	accountTrie     Trie
 	accountTrieRoot common.Hash
+
+	wg sync.WaitGroup
 }
 
 func NewTriePrefetcher(db Database) *TriePrefetcher {
 	return &TriePrefetcher{
-		requestCh:  make(chan fetchRequest, 200),
-		cmdCh:      make(chan *cmd),
-		quitCh:     make(chan struct{}),
-		deliveryCh: make(chan struct{}),
-		db:         db,
+		storageReqCh:  make(chan *storageFetchRequest, 100),
+		accountReqCh:  make(chan *accountFetchRequest, 100),
+		accountCtrlCh: make(chan common.Hash),
+		storageCtrlCh: make(chan common.Hash),
+		quitCh:        make(chan struct{}),
+		deliveryCh:    make(chan struct{}),
+		db:            db,
 	}
 }
 
-type cmd struct {
-	root common.Hash
+type accountFetchRequest struct {
+	addresses []common.Address
 }
 
-type fetchRequest struct {
+type storageFetchRequest struct {
 	slots       []common.Hash
-	storageRoot *common.Hash
-	addresses   []common.Address
+	storageRoot common.Hash
 }
 
-func (p *TriePrefetcher) Loop() {
+func (p *TriePrefetcher) loopAccounts() {
 	var (
 		accountTrieRoot common.Hash
 		accountTrie     Trie
-		storageTries    map[common.Hash]Trie
-
-		err error
-		// Some tracking of performance
-		skipped int64
-		fetched int64
-
-		paused = true
+		skipped         int64
+		fetched         int64
+		paused          = true
 	)
-	// The prefetcher loop has two distinct phases:
-	// 1: Paused: when in this state, the accumulated tries are accessible to outside
-	// callers.
-	// 2: Active prefetching, awaiting slots and accounts to prefetch
+	var drain = func() {
+		for {
+			select {
+			case req := <-p.accountReqCh:
+				skipped += int64(len(req.addresses))
+			default:
+				break
+			}
+		}
+	}
+
 	for {
 		select {
 		case <-p.quitCh:
 			return
-		case cmd := <-p.cmdCh:
-			// Clear out any old requests
-		drain:
-			for {
-				select {
-				case req := <-p.requestCh:
-					if req.slots != nil {
-						skipped += int64(len(req.slots))
-					} else {
-						skipped += int64(len(req.addresses))
-					}
-				default:
-					break drain
-				}
+		case stateRoot := <-p.accountCtrlCh:
+			// Clear out any (now stale) requests
+			drain()
+			// Sanity checks for programming errors
+			if paused && stateRoot == (common.Hash{}) {
+				log.Error("Trie prefetcher unpaused with bad root")
+			} else if !paused && stateRoot != (common.Hash{}) {
+				log.Error("Trie prefetcher paused with non-empty root")
 			}
-			if paused {
+			if paused { // paused -> active
 				// Clear old data
-				p.storageTries = nil
 				p.accountTrie = nil
 				p.accountTrieRoot = common.Hash{}
 				// Resume again
-				storageTries = make(map[common.Hash]Trie)
-				accountTrieRoot = cmd.root
-				accountTrie, err = p.db.OpenTrie(accountTrieRoot)
-				if err != nil {
+				accountTrieRoot = stateRoot
+				var err error
+				if accountTrie, err = p.db.OpenTrie(accountTrieRoot); err != nil {
 					log.Error("Trie prefetcher failed opening trie", "root", accountTrieRoot, "err", err)
 				}
-				if accountTrieRoot == (common.Hash{}) {
-					log.Error("Trie prefetcher unpaused with bad root")
-				}
 				paused = false
+			} else { // active -> paused
+				// Update metrics at new block events
+				triePrefetchFetchMeter.Mark(fetched)
+				triePrefetchSkipMeter.Mark(skipped)
+				fetched, skipped = 0, 0
+				// Make the prefetched tries accessible to the external world
+				p.accountTrie = accountTrie
+				p.accountTrieRoot = accountTrieRoot
+				paused = true
+			}
+			// Signal that we're done, external callers can access the
+			// account-fields that are preloaded
+			p.deliveryCh <- struct{}{}
+		case req := <-p.accountReqCh:
+			if paused {
+				continue
+			}
+			for _, addr := range req.addresses {
+				accountTrie.TryGet(addr[:])
+			}
+			fetched += int64(len(req.addresses))
+		}
+	}
+}
+
+func (p *TriePrefetcher) loopStorage() {
+	var (
+		storageTries map[common.Hash]Trie
+		skipped      int64
+		fetched      int64
+		paused       = true
+	)
+	var drain = func() {
+		for {
+			select {
+			case req := <-p.storageReqCh:
+				skipped += int64(len(req.slots))
+			default:
+				break
+			}
+		}
+	}
+	for {
+		select {
+		case <-p.quitCh:
+			return
+		case stateRoot := <-p.storageCtrlCh:
+			// Clear out any (now stale) requests
+			drain()
+			// Sanity checks for programming errors
+			if paused && stateRoot == (common.Hash{}) {
+				log.Error("Trie prefetcher unpaused with bad root")
+			} else if !paused && stateRoot != (common.Hash{}) {
+				log.Error("Trie prefetcher paused with non-empty root")
+			}
+			if paused {
+				p.storageTries = nil // Clear old data
+				storageTries = make(map[common.Hash]Trie)
+				paused = false // Resume again
 			} else {
 				// Update metrics at new block events
 				triePrefetchFetchMeter.Mark(fetched)
 				triePrefetchSkipMeter.Mark(skipped)
 				fetched, skipped = 0, 0
-				// Make the tries accessible
-				p.accountTrie = accountTrie
+				// Make the prefetched tries accessible to the external world
 				p.storageTries = storageTries
-				p.accountTrieRoot = accountTrieRoot
-				if cmd.root != (common.Hash{}) {
-					log.Error("Trie prefetcher paused with non-empty root")
-				}
 				paused = true
 			}
 			p.deliveryCh <- struct{}{}
-		case req := <-p.requestCh:
+		case req := <-p.storageReqCh:
 			if paused {
 				continue
 			}
-			if sRoot := req.storageRoot; sRoot != nil {
-				// Storage slots to fetch
-				var (
-					storageTrie Trie
-					err         error
-				)
-				if storageTrie = storageTries[*sRoot]; storageTrie == nil {
-					if storageTrie, err = p.db.OpenTrie(*sRoot); err != nil {
-						log.Warn("trie prefetcher failed opening storage trie", "root", *sRoot, "err", err)
-						skipped += int64(len(req.slots))
-						continue
-					}
-					storageTries[*sRoot] = storageTrie
+			sRoot := req.storageRoot
+			// Storage slots to fetch
+			var (
+				storageTrie Trie
+				err         error
+			)
+			if storageTrie = storageTries[sRoot]; storageTrie == nil {
+				if storageTrie, err = p.db.OpenTrie(sRoot); err != nil {
+					log.Warn("trie prefetcher failed opening storage trie", "root", sRoot, "err", err)
+					skipped += int64(len(req.slots))
+					continue
 				}
-				for _, key := range req.slots {
-					storageTrie.TryGet(key[:])
-				}
-				fetched += int64(len(req.slots))
-			} else { // an account
-				for _, addr := range req.addresses {
-					accountTrie.TryGet(addr[:])
-				}
-				fetched += int64(len(req.addresses))
+				storageTries[sRoot] = storageTrie
 			}
+			for _, key := range req.slots {
+				storageTrie.TryGet(key[:])
+			}
+			fetched += int64(len(req.slots))
 		}
 	}
+}
+
+// Start starts the two prefetcher loops
+func (p *TriePrefetcher) Start() {
+	p.wg.Add(2)
+	go p.loopAccounts()
+	go p.loopStorage()
 }
 
 // Close stops the prefetcher
@@ -174,6 +227,7 @@ func (p *TriePrefetcher) Close() {
 	if p.quitCh != nil {
 		close(p.quitCh)
 		p.quitCh = nil
+		p.wg.Wait()
 	}
 }
 
@@ -181,10 +235,11 @@ func (p *TriePrefetcher) Close() {
 // fetch data concerning the new root
 func (p *TriePrefetcher) Resume(root common.Hash) {
 	p.paused = false
-	p.cmdCh <- &cmd{
-		root: root,
-	}
-	// Wait for it
+	// Send to both loops
+	p.accountCtrlCh <- root
+	p.storageCtrlCh <- root
+	// Wait for both loops to signal readyness
+	<-p.deliveryCh
 	<-p.deliveryCh
 }
 
@@ -195,22 +250,21 @@ func (p *TriePrefetcher) Pause() {
 		return
 	}
 	p.paused = true
-	p.cmdCh <- &cmd{
-		root: common.Hash{},
-	}
-	// Wait for it
+	// Send to both loops
+	p.accountCtrlCh <- common.Hash{}
+	p.storageCtrlCh <- common.Hash{}
+	// Wait for both loops to signal paused
+	<-p.deliveryCh
 	<-p.deliveryCh
 }
 
 // PrefetchAddresses adds an address for prefetching
 func (p *TriePrefetcher) PrefetchAddresses(addresses []common.Address) {
-	cmd := fetchRequest{
-		addresses: addresses,
-	}
 	// We do an async send here, to not cause the caller to block
-	//p.requestCh <- cmd
 	select {
-	case p.requestCh <- cmd:
+	case p.accountReqCh <- &accountFetchRequest{
+		addresses: addresses,
+	}:
 	default:
 		triePrefetchDropMeter.Mark(int64(len(addresses)))
 	}
@@ -218,14 +272,12 @@ func (p *TriePrefetcher) PrefetchAddresses(addresses []common.Address) {
 
 // PrefetchStorage adds a storage root and a set of keys for prefetching
 func (p *TriePrefetcher) PrefetchStorage(root common.Hash, slots []common.Hash) {
-	cmd := fetchRequest{
-		storageRoot: &root,
-		slots:       slots,
-	}
 	// We do an async send here, to not cause the caller to block
-	//p.requestCh <- cmd
 	select {
-	case p.requestCh <- cmd:
+	case p.storageReqCh <- &storageFetchRequest{
+		storageRoot: root,
+		slots:       slots,
+	}:
 	default:
 		triePrefetchDropMeter.Mark(int64(len(slots)))
 	}
