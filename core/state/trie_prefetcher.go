@@ -85,6 +85,7 @@ func (p *TriePrefetcher) loopAccounts() {
 		fetched         int64
 		paused          = true
 	)
+	defer p.wg.Done()
 	var drain = func() {
 		for {
 			select {
@@ -152,6 +153,7 @@ func (p *TriePrefetcher) loopStorage() {
 		fetched      int64
 		paused       = true
 	)
+	defer p.wg.Done()
 	var drain = func() {
 		for {
 			select {
