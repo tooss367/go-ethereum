@@ -92,7 +92,7 @@ func (p *TriePrefetcher) loopAccounts() {
 			case req := <-p.accountReqCh:
 				skipped += int64(len(req.addresses))
 			default:
-				break
+				return
 			}
 		}
 	}
@@ -160,7 +160,7 @@ func (p *TriePrefetcher) loopStorage() {
 			case req := <-p.storageReqCh:
 				skipped += int64(len(req.slots))
 			default:
-				break
+				return
 			}
 		}
 	}
