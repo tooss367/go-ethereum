@@ -822,33 +822,43 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	// Finalise all the dirty storage states and write them into the tries
 	s.Finalise(deleteEmptyObjects)
 
-	// Now we're about to start to write changes to the trie. The trie is so
-	// far _untouched_. We can check with the prefetcher, if it can give us
-	// a trie which has the same root, but also has some content loaded into it.
-	// If so, use that one instead.
-	if s.prefetcher != nil {
-		// We only want to do this _once_, if someone calls IntermediateRoot again,
-		// we shouldn't fetch the trie again
-		if s.originalRoot != (common.Hash{}) {
-			s.prefetcher.Pause()
-			if trie := s.prefetcher.GetTrie(s.originalRoot); trie != nil {
-				s.trie = trie
-			}
-			s.originalRoot = common.Hash{}
+	usedAddresses := make([]common.Address, 0, len(s.stateObjectsPending))
+	// In the first phase, we need the storage tries for hashing.
+	if s.prefetcher != nil && s.originalRoot != (common.Hash{}) {
+		// After this, the objects can fetch the storage tries from the
+		// prefetcher.
+		s.prefetcher.PauseStorage()
+	}
+	// Update the root of all stateobjects in pending
+	for addr := range s.stateObjectsPending {
+		obj := s.stateObjects[addr]
+		if !obj.deleted {
+			obj.updateRoot(s.db)
 		}
 	}
-	usedAddresses := make([]common.Address, 0, len(s.stateObjectsPending))
+	// At this point, we need to update the main trie, and need to pause the
+	// account-prefetcher aswell.
+	if s.prefetcher != nil && s.originalRoot != (common.Hash{}) {
+		s.prefetcher.PauseAccounts()
+		if trie := s.prefetcher.GetAccountTrie(s.originalRoot); trie != nil {
+			s.trie = trie
+		}
+		// We only want to do this _once_, if someone calls IntermediateRoot again,
+		// we shouldn't fetch the trie again
+		s.originalRoot = common.Hash{}
+	}
+	// Now update the account trie
 	for addr := range s.stateObjectsPending {
 		obj := s.stateObjects[addr]
 		if obj.deleted {
 			s.deleteStateObject(obj)
 		} else {
-			obj.updateRoot(s.db)
 			s.updateStateObject(obj)
 		}
 		usedAddresses = append(usedAddresses, addr)
 	}
 	if s.prefetcher != nil {
+		// TODO: Remove this later on, useful for debugging/testing
 		s.prefetcher.UseAddresses(usedAddresses)
 	}
 	if len(s.stateObjectsPending) > 0 {
