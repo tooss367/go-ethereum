@@ -1,4 +1,4 @@
-## EIP-2030 testing
+## EIP-2930 testing
 
 This test contains testcases for EIP-2930, which uses transactions with access lists. 
 
