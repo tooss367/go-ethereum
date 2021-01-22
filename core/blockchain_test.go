@@ -3121,25 +3121,50 @@ type jsonFormat struct {
 
 //XTestGenerateACLJsonFiles creates files in ./testdata/ , to be used for cross-client
 //testing
-func XTestGenerateACLJsonFilesEip2718(t *testing.T) {
+func TestGenerateACLJsonFilesEip2718(t *testing.T) {
+
+	var chainConfig = &params.ChainConfig{
+		ChainID:             big.NewInt(1),
+		HomesteadBlock:      big.NewInt(0),
+		DAOForkBlock:        nil,
+		DAOForkSupport:      true,
+		EIP150Block:         big.NewInt(0),
+		EIP155Block:         big.NewInt(0),
+		EIP158Block:         big.NewInt(0),
+		ByzantiumBlock:      big.NewInt(0),
+		ConstantinopleBlock: big.NewInt(0),
+		PetersburgBlock:     big.NewInt(0),
+		IstanbulBlock:       big.NewInt(0),
+		MuirGlacierBlock:    nil,
+		YoloV2Block:         big.NewInt(0),
+		Ethash:              new(params.EthashConfig),
+	}
+
 	var (
 		aa = common.HexToAddress("0x000000000000000000000000000000000000aaaa")
 		// Generate a canonical chain to act as the main dataset
 		engine = ethash.NewFaker()
+		//engine = ethash.New(ethash.Config{"", 3, 0, false, "", 1, 0, false, ethash.ModeNormal, nil}, nil, false)
 		db     = rawdb.NewMemoryDatabase()
 		// A sender who makes transactions, has some funds
 		key, _  = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 		address = crypto.PubkeyToAddress(key.PublicKey)
 		funds   = big.NewInt(1000000000)
 		gspec   = &Genesis{
-			Config: params.YoloV2ChainConfig,
+			Config:     chainConfig,
+			Nonce:      1337,
+			Timestamp:  0,
+			GasLimit:   0,
+			Difficulty: big.NewInt(0x20000),
 			Alloc: GenesisAlloc{
 				address: {Balance: funds},
-				// The address 0xAAAA sloads 0x00 and 0x01
+				// The address 0xAAAA sloads 0x00 and 0x03 and 0x00
+				// and checks the balance of origin
 				aa: {
 					Code: []byte{
-						byte(vm.PC), byte(vm.PC),
-						byte(vm.SLOAD), byte(vm.SLOAD),
+						byte(vm.PC), byte(vm.SLOAD), byte(vm.POP),
+						byte(vm.PC), byte(vm.SLOAD), byte(vm.POP),
+						byte(vm.ORIGIN),byte(vm.BALANCE),
 					},
 					Nonce:   0,
 					Balance: big.NewInt(0),
@@ -3212,6 +3237,10 @@ func XTestGenerateACLJsonFilesEip2718(t *testing.T) {
 	// Export the chain
 	for i, block := range blocks {
 		rlpData, err := rlp.EncodeToBytes(block)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = ioutil.WriteFile(fmt.Sprintf("testdata/acl_block_%d.rlp", i), rlpData,0777)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -100,6 +100,7 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 		var jt JumpTable
 		switch {
 		case evm.chainRules.IsYoloV2:
+			log.Info("Ysing yolov2 instructionset\n")
 			jt = yoloV2InstructionSet
 		case evm.chainRules.IsIstanbul:
 			jt = istanbulInstructionSet
