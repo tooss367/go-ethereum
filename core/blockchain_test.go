@@ -3154,7 +3154,7 @@ func TestGenerateACLJsonFilesEip2718(t *testing.T) {
 			Config:     chainConfig,
 			Nonce:      1337,
 			Timestamp:  0,
-			GasLimit:   0,
+			GasLimit:   params.GenesisGasLimit,
 			Difficulty: big.NewInt(0x20000),
 			Alloc: GenesisAlloc{
 				address: {Balance: funds},

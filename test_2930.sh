@@ -16,8 +16,11 @@ rm -rf /tmp/bax
 ./build/bin/geth --fakepow --datadir /tmp/bax import ./core/testdata/acl_block_8.rlp
 ./build/bin/geth --fakepow --datadir /tmp/bax import ./core/testdata/acl_block_9.rlp
 
-# Dump out one of the transactions
 
+#Dump out the genesis
+./build/bin/geth --datadir /tmp/bax --nodiscover --maxpeers 0 console --exec "eth.getBlock(0)"
+
+# Dump out one of the transactions
 ./build/bin/geth --datadir /tmp/bax --nodiscover --maxpeers 0 console --exec "b=eth.getBlock(3); debug.traceTransaction(b.transactions[0])"
 
 
