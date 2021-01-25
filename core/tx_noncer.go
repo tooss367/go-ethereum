@@ -78,8 +78,7 @@ func (txn *txNoncer) setIfLower(addr common.Address, nonce uint64) {
 	txn.nonces[addr] = nonce
 }
 
-// When reset is executed, the virtual state database is cleared and
-// the status of all accounts will be updated again
+// resetAll sets the nonces for all accounts to the given map.
 func (txn *txNoncer) resetAll(all map[common.Address]uint64) {
 	txn.lock.Lock()
 	defer txn.lock.Unlock()
