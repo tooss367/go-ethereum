@@ -2070,6 +2070,6 @@ func BenchmarkPoolMultiAccountBatchInsert(b *testing.B) {
 	// Benchmark importing the transactions into the queue
 	b.ResetTimer()
 	for _, tx := range batches {
-		pool.AddRemotes([]*types.Transaction{tx})
+		pool.AddRemotesSync([]*types.Transaction{tx})
 	}
 }
