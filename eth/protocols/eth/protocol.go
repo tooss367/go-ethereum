@@ -41,7 +41,7 @@ const protocolName = "eth"
 
 // protocolVersions are the supported versions of the `eth` protocol (first
 // is primary).
-var protocolVersions = []uint{ETH65, ETH64}
+var protocolVersions = []uint{ETH66, ETH65, ETH64}
 
 // protocolLengths are the number of implemented message corresponding to
 // different protocol versions.
