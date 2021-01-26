@@ -32,6 +32,7 @@ import (
 const (
 	ETH64 = 64
 	ETH65 = 65
+	ETH66 = 66
 )
 
 // protocolName is the official short name of the `eth` protocol used during
