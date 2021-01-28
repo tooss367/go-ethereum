@@ -18,12 +18,13 @@ package eth
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
-	"github.com/ethereum/go-ethereum/core/types"
 	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
@@ -78,7 +79,6 @@ func TestEth66EmptyMessages(t *testing.T) {
 
 	for i, msg := range []interface{}{
 		// Headers
-		GetBlockHeadersPacket66{1111, nil},
 		BlockHeadersPacket66{1111, nil},
 		// Bodies
 		GetBlockBodiesPacket66{1111, nil},
@@ -206,12 +206,12 @@ func TestEth66Messages(t *testing.T) {
 		want    []byte
 	}{
 		{
-			GetBlockHeadersPacket66{1111, &GetBlockHeadersPacket{HashOrNumber{hashes[0], 0}, 5, 5, false}},
-			common.FromHex("e8820457e4a000000000000000000000000000000000000000000000000000000000deadc0de050580"),
+			&GetBlockHeadersPacket66{1111, HashOrNumber{hashes[0], 0}, 5, 5, false},
+			common.FromHex("e7820457a000000000000000000000000000000000000000000000000000000000deadc0de050580"),
 		},
 		{
-			GetBlockHeadersPacket66{1111, &GetBlockHeadersPacket{HashOrNumber{common.Hash{}, 9999}, 5, 5, false}},
-			common.FromHex("ca820457c682270f050580"),
+			&GetBlockHeadersPacket66{1111, HashOrNumber{common.Hash{}, 9999}, 5, 5, false},
+			common.FromHex("c982045782270f050580"),
 		},
 		{
 			BlockHeadersPacket66{1111, BlockHeadersPacket{header}},

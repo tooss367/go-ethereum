@@ -34,7 +34,8 @@ func handleGetBlockHeaders(backend Backend, msg Decoder, peer *Peer) error {
 	if err := msg.Decode(&query); err != nil {
 		return fmt.Errorf("%w: message %v: %v", errDecode, msg, err)
 	}
-	response := answerGetBlockHeadersQuery(backend, &query, peer)
+	response := answerGetBlockHeadersQuery(backend, query.Origin, query.Amount,
+		query.Skip, query.Reverse, peer)
 	return peer.SendBlockHeaders(response)
 }
 
@@ -45,12 +46,13 @@ func handleGetBlockHeaders66(backend Backend, msg Decoder, peer *Peer) error {
 	if err := msg.Decode(&query); err != nil {
 		return fmt.Errorf("%w: message %v: %v", errDecode, msg, err)
 	}
-	response := answerGetBlockHeadersQuery(backend, query.GetBlockHeadersPacket, peer)
+	response := answerGetBlockHeadersQuery(backend, query.Origin, query.Amount,
+		query.Skip, query.Reverse, peer)
 	return peer.ReplyBlockHeaders(query.RequestId, response)
 }
 
-func answerGetBlockHeadersQuery(backend Backend, query *GetBlockHeadersPacket, peer *Peer) BlockHeadersPacket {
-	hashMode := query.Origin.Hash != (common.Hash{})
+func answerGetBlockHeadersQuery(backend Backend, origin HashOrNumber, amount, skip uint64, reverse bool, peer *Peer) BlockHeadersPacket {
+	hashMode := origin.Hash != (common.Hash{})
 	first := true
 	maxNonCanonical := uint64(100)
 
@@ -61,57 +63,57 @@ func answerGetBlockHeadersQuery(backend Backend, query *GetBlockHeadersPacket, p
 		unknown bool
 		lookups int
 	)
-	for !unknown && len(headers) < int(query.Amount) && bytes < softResponseLimit &&
+	for !unknown && len(headers) < int(amount) && bytes < softResponseLimit &&
 		len(headers) < maxHeadersServe && lookups < 2*maxHeadersServe {
 		lookups++
 		// Retrieve the next header satisfying the query
-		var origin *types.Header
+		var header *types.Header
 		if hashMode {
 			if first {
 				first = false
-				origin = backend.Chain().GetHeaderByHash(query.Origin.Hash)
-				if origin != nil {
-					query.Origin.Number = origin.Number.Uint64()
+				header = backend.Chain().GetHeaderByHash(origin.Hash)
+				if header != nil {
+					origin.Number = header.Number.Uint64()
 				}
 			} else {
-				origin = backend.Chain().GetHeader(query.Origin.Hash, query.Origin.Number)
+				header = backend.Chain().GetHeader(origin.Hash, origin.Number)
 			}
 		} else {
-			origin = backend.Chain().GetHeaderByNumber(query.Origin.Number)
+			header = backend.Chain().GetHeaderByNumber(origin.Number)
 		}
-		if origin == nil {
+		if header == nil {
 			break
 		}
-		headers = append(headers, origin)
+		headers = append(headers, header)
 		bytes += estHeaderSize
 
 		// Advance to the next header of the query
 		switch {
-		case hashMode && query.Reverse:
+		case hashMode && reverse:
 			// Hash based traversal towards the genesis block
-			ancestor := query.Skip + 1
+			ancestor := skip + 1
 			if ancestor == 0 {
 				unknown = true
 			} else {
-				query.Origin.Hash, query.Origin.Number = backend.Chain().GetAncestor(query.Origin.Hash, query.Origin.Number, ancestor, &maxNonCanonical)
-				unknown = (query.Origin.Hash == common.Hash{})
+				origin.Hash, origin.Number = backend.Chain().GetAncestor(origin.Hash, origin.Number, ancestor, &maxNonCanonical)
+				unknown = (origin.Hash == common.Hash{})
 			}
-		case hashMode && !query.Reverse:
+		case hashMode && !reverse:
 			// Hash based traversal towards the leaf block
 			var (
-				current = origin.Number.Uint64()
-				next    = current + query.Skip + 1
+				current = header.Number.Uint64()
+				next    = current + skip + 1
 			)
 			if next <= current {
 				infos, _ := json.MarshalIndent(peer.Peer.Info(), "", "  ")
-				peer.Log().Warn("GetBlockHeaders skip overflow attack", "current", current, "skip", query.Skip, "next", next, "attacker", infos)
+				peer.Log().Warn("GetBlockHeaders skip overflow attack", "current", current, "skip", skip, "next", next, "attacker", infos)
 				unknown = true
 			} else {
 				if header := backend.Chain().GetHeaderByNumber(next); header != nil {
 					nextHash := header.Hash()
-					expOldHash, _ := backend.Chain().GetAncestor(nextHash, next, query.Skip+1, &maxNonCanonical)
-					if expOldHash == query.Origin.Hash {
-						query.Origin.Hash, query.Origin.Number = nextHash, next
+					expOldHash, _ := backend.Chain().GetAncestor(nextHash, next, skip+1, &maxNonCanonical)
+					if expOldHash == origin.Hash {
+						origin.Hash, origin.Number = nextHash, next
 					} else {
 						unknown = true
 					}
@@ -119,17 +121,17 @@ func answerGetBlockHeadersQuery(backend Backend, query *GetBlockHeadersPacket, p
 					unknown = true
 				}
 			}
-		case query.Reverse:
+		case reverse:
 			// Number based traversal towards the genesis block
-			if query.Origin.Number >= query.Skip+1 {
-				query.Origin.Number -= query.Skip + 1
+			if origin.Number >= skip+1 {
+				origin.Number -= skip + 1
 			} else {
 				unknown = true
 			}
 
-		case !query.Reverse:
+		case !reverse:
 			// Number based traversal towards the leaf block
-			query.Origin.Number += query.Skip + 1
+			origin.Number += skip + 1
 		}
 	}
 	return headers
