@@ -12,10 +12,10 @@ import (
 // TxRef contains fields needed for pool scheduling.
 // It weighs in on 52 bytes
 type TxRef struct {
-	sender    common.Address // 20 bytes
-	nonce     uint64         // 8 bytes
-	gasPrice  *big.Int       // 8 bytes
-	key       uint64         // 8 bytes
+	sender   common.Address // 20 bytes
+	nonce    uint64         // 8 bytes
+	gasPrice *big.Int       // 8 bytes
+	key      uint64         // 8 bytes
 }
 
 func (ref *TxRef) loadTransaction(backend TxBackend) *types.Transaction {
@@ -30,6 +30,10 @@ func (ref *TxRef) loadTransaction(backend TxBackend) *types.Transaction {
 
 func (ref *TxRef) Nonce() uint64 {
 	return ref.nonce
+}
+
+func (ref *TxRef) Sender() common.Address {
+	return ref.sender
 }
 
 func (ref *TxRef) GasPrice() *big.Int {
@@ -57,14 +61,19 @@ func (ref *TxRef) Cost() *big.Int {
 	return big.NewInt(0)
 }
 
+// Size return the size of the RLP-encoded transaction
+func (ref *TxRef) Size() uint64 {
+	panic("Implement me")
+}
+
 func fromTransaction(backend TxBackend, tx *types.Transaction, sender common.Address) *TxRef {
 	rlpData, _ := rlp.EncodeToBytes(tx)
 	key := backend.Put(rlpData)
 	return &TxRef{
-		sender:    sender,
-		nonce:     tx.Nonce(),
-		gasPrice:  tx.GasPrice(),
-		key:       key,
+		sender:   sender,
+		nonce:    tx.Nonce(),
+		gasPrice: tx.GasPrice(),
+		key:      key,
 	}
 }
 

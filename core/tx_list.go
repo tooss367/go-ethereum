@@ -457,7 +457,7 @@ func newTxPricedList(all *txLookup) *txPricedList {
 }
 
 // Put inserts a new transaction into the heap.
-func (l *txPricedList) Put(tx *types.Transaction, local bool) {
+func (l *txPricedList) Put(tx *txbackend.TxRef, local bool) {
 	if local {
 		return
 	}
@@ -528,11 +528,11 @@ func (l *txPricedList) Underpriced(gasPrice *big.Int) bool {
 // priced list and returns them for further removal from the entire pool.
 //
 // Note local transaction won't be considered for eviction.
-func (l *txPricedList) Discard(slots int, force bool) (types.Transactions, bool) {
-	drop := make(types.Transactions, 0, slots) // Remote underpriced transactions to drop
+func (l *txPricedList) Discard(slots int, force bool) ([]*txbackend.TxRef, bool) {
+	drop := make([]*txbackend.TxRef, 0, slots) // Remote underpriced transactions to drop
 	for len(*l.remotes) > 0 && slots > 0 {
 		// Discard stale transactions if found during cleanup
-		tx := heap.Pop(l.remotes).(*types.Transaction)
+		tx := heap.Pop(l.remotes).(*txbackend.TxRef)
 		if l.all.GetRemote(tx.Hash()) == nil { // Removed or migrated
 			l.stales--
 			continue

@@ -248,7 +248,7 @@ type TxPool struct {
 	chainHeadSub    event.Subscription
 	reqResetCh      chan *txpoolResetRequest
 	reqPromoteCh    chan *accountSet
-	queueTxEventCh  chan *types.Transaction
+	queueTxEventCh  chan *txbackend.TxRef
 	reorgDoneCh     chan chan struct{}
 	reorgShutdownCh chan struct{}  // requests shutdown of scheduleReorgLoop
 	wg              sync.WaitGroup // tracks loop, scheduleReorgLoop
@@ -277,7 +277,7 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		chainHeadCh:     make(chan ChainHeadEvent, chainHeadChanSize),
 		reqResetCh:      make(chan *txpoolResetRequest),
 		reqPromoteCh:    make(chan *accountSet),
-		queueTxEventCh:  make(chan *types.Transaction),
+		queueTxEventCh:  make(chan *txbackend.TxRef),
 		reorgDoneCh:     make(chan chan struct{}),
 		reorgShutdownCh: make(chan struct{}),
 		gasPrice:        new(big.Int).SetUint64(config.PriceLimit),
@@ -668,9 +668,9 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 // enqueueTx inserts a new transaction into the non-executable transaction queue.
 //
 // Note, this method assumes the pool lock is held!
-func (pool *TxPool) enqueueTx(hash common.Hash, tx *types.Transaction, local bool, addAll bool) (bool, error) {
+func (pool *TxPool) enqueueTx(hash common.Hash, tx *txbackend.TxRef, local bool, addAll bool) (bool, error) {
 	// Try to insert the transaction into the future queue
-	from, _ := types.Sender(pool.signer, tx) // already validated
+	from := tx.Sender()
 	if pool.queue[from] == nil {
 		pool.queue[from] = newTxList(false)
 	}
@@ -721,7 +721,7 @@ func (pool *TxPool) journalTx(from common.Address, tx *types.Transaction) {
 // and returns whether it was inserted or an older was better.
 //
 // Note, this method assumes the pool lock is held!
-func (pool *TxPool) promoteTx(addr common.Address, hash common.Hash, tx *types.Transaction) bool {
+func (pool *TxPool) promoteTx(addr common.Address, hash common.Hash, tx *txbackend.TxRef) bool {
 	// Try to insert the transaction into the pending queue
 	if pool.pending[addr] == nil {
 		pool.pending[addr] = newTxList(true)
@@ -874,7 +874,7 @@ func (pool *TxPool) Status(hashes []common.Hash) []TxStatus {
 		if tx == nil {
 			continue
 		}
-		from := tx.sender
+		from := tx.Sender()
 		pool.mu.RLock()
 		if txList := pool.pending[from]; txList != nil && txList.txs.items[tx.Nonce()] != nil {
 			status[i] = TxStatusPending
@@ -907,7 +907,7 @@ func (pool *TxPool) removeTx(hash common.Hash, outofbound bool) {
 	if tx == nil {
 		return
 	}
-	addr := tx.sender
+	addr := tx.Sender()
 
 	// Remove it from the list of known transactions
 	pool.all.Remove(hash)
@@ -972,7 +972,7 @@ func (pool *TxPool) requestPromoteExecutables(set *accountSet) chan struct{} {
 }
 
 // queueTxEvent enqueues a transaction event to be sent in the next reorg run.
-func (pool *TxPool) queueTxEvent(tx *types.Transaction) {
+func (pool *TxPool) queueTxEvent(tx *txbackend.TxRef) {
 	select {
 	case pool.queueTxEventCh <- tx:
 	case <-pool.reorgShutdownCh:
@@ -1031,7 +1031,7 @@ func (pool *TxPool) scheduleReorgLoop() {
 		case tx := <-pool.queueTxEventCh:
 			// Queue up the event, but don't schedule a reorg. It's up to the caller to
 			// request one later if they want the events sent.
-			addr, _ := types.Sender(pool.signer, tx)
+			addr := tx.Sender()
 			if _, ok := queuedEvents[addr]; !ok {
 				queuedEvents[addr] = newTxSortedMap()
 			}
@@ -1101,15 +1101,15 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirt
 	pool.mu.Unlock()
 
 	// Notify subsystems for newly added transactions
-	for _, tx := range promoted {
-		addr, _ := types.Sender(pool.signer, tx)
+	for _, tx := range promoted{
+		addr := tx.Sender()
 		if _, ok := events[addr]; !ok {
 			events[addr] = newTxSortedMap()
 		}
 		events[addr].Put(tx)
 	}
 	if len(events) > 0 {
-		var txs []*types.Transaction
+		var txs []*txbackend.TxRef
 		for _, set := range events {
 			txs = append(txs, set.Flatten()...)
 		}
@@ -1208,9 +1208,9 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 // promoteExecutables moves transactions that have become processable from the
 // future queue to the set of pending transactions. During this process, all
 // invalidated transactions (low nonce, low balance) are deleted.
-func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Transaction {
+func (pool *TxPool) promoteExecutables(accounts []common.Address) []*txbackend.TxRef {
 	// Track the promoted transactions to broadcast them at once
-	var promoted []*types.Transaction
+	var promoted []*txbackend.TxRef
 
 	// Iterate over all accounts and promote any executable transactions
 	for _, addr := range accounts {
@@ -1246,7 +1246,7 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 		queuedGauge.Dec(int64(len(readies)))
 
 		// Drop all transactions over the allowed limit
-		var caps types.Transactions
+		var caps []*txbackend.TxRef
 		if !pool.locals.contains(addr) {
 			caps = list.Cap(int(pool.config.AccountQueue))
 			for _, tx := range caps {
@@ -1503,15 +1503,6 @@ func (as *accountSet) empty() bool {
 	return len(as.accounts) == 0
 }
 
-// containsTx checks if the sender of a given tx is within the set. If the sender
-// cannot be derived, this method returns false.
-func (as *accountSet) containsTx(tx *txbackend.TxRef) bool {
-	if addr, err := types.Sender(as.signer, tx); err == nil {
-		return as.contains(addr)
-	}
-	return false
-}
-
 // add inserts a new address into the set to track.
 func (as *accountSet) add(addr common.Address) {
 	as.accounts[addr] = struct{}{}
@@ -1562,8 +1553,8 @@ type txLookup struct {
 	backend txbackend.TxBackend
 	slots   int
 	lock    sync.RWMutex
-	locals  map[common.Hash]*types.Transaction
-	remotes map[common.Hash]*types.Transaction
+	locals  map[common.Hash]*txbackend.TxRef
+	remotes map[common.Hash]*txbackend.TxRef
 }
 
 // newTxLookup returns a new txLookup structure.
@@ -1702,7 +1693,7 @@ func (t *txLookup) RemoteToLocals(locals *accountSet) int {
 
 	var migrated int
 	for hash, tx := range t.remotes {
-		if locals.containsTx(tx) {
+		if locals.contains(tx.Sender()) {
 			t.locals[hash] = tx
 			delete(t.remotes, hash)
 			migrated += 1
@@ -1712,6 +1703,6 @@ func (t *txLookup) RemoteToLocals(locals *accountSet) int {
 }
 
 // numSlots calculates the number of slots needed for a single transaction.
-func numSlots(tx *types.Transaction) int {
+func numSlots(tx *txbackend.TxRef) int {
 	return int((tx.Size() + txSlotSize - 1) / txSlotSize)
 }
