@@ -247,6 +247,86 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			return nil, ErrOutOfGas
 		}
 
+		if op >= DUP1 && op <= SWAP16 {
+			if op >= DUP1 && op <= DUP16 {
+				callContext.stack.dup(1 + int(op-DUP1))
+			} else { // Swap
+				callContext.stack.swap(2 + int(op-SWAP1))
+			}
+			pc++
+			continue
+		}
+		if op >= ADD && op <= SMOD {
+			x, y := callContext.stack.pop(), callContext.stack.peek()
+			switch op {
+			case ADD:
+				y.Add(&x, y)
+			case SUB:
+				y.Sub(&x, y)
+			case MUL:
+				y.Mul(&x, y)
+			case DIV:
+				y.Div(&x, y)
+			case SDIV:
+				y.SDiv(&x, y)
+			case MOD:
+				y.Mod(&x, y)
+			case SMOD:
+				y.SMod(&x, y)
+			}
+			pc++
+			continue
+		}
+		if op >= LT && op <= EQ {
+			x, y := callContext.stack.pop(), callContext.stack.peek()
+			res := op == LT && x.Lt(y)
+			res = res || op == GT && x.Gt(y)
+			res = res || op == SLT && x.Slt(y)
+			res = res || op == SGT && x.Sgt(y)
+			res = res || op == EQ && x.Eq(y)
+			if res {
+				y.SetOne()
+			} else {
+				y.Clear()
+			}
+			pc++
+			continue
+		}
+		if op >= ISZERO && op <= BYTE {
+			switch op {
+			case ISZERO:
+				x := callContext.stack.peek()
+				if x.IsZero() {
+					x.SetOne()
+				} else {
+					x.Clear()
+				}
+			case AND:
+				x, y := callContext.stack.pop(), callContext.stack.peek()
+				y.And(&x, y)
+			case OR:
+				x, y := callContext.stack.pop(), callContext.stack.peek()
+				y.Or(&x, y)
+			case XOR:
+				x, y := callContext.stack.pop(), callContext.stack.peek()
+				y.Xor(&x, y)
+			case NOT:
+				x := callContext.stack.peek()
+				x.Not(x)
+			case BYTE:
+				x, y := callContext.stack.pop(), callContext.stack.peek()
+				y.Byte(&x)
+			}
+			pc++
+			continue
+
+		}
+		if op == POP {
+			callContext.stack.pop()
+			pc++
+			continue
+		}
+
 		var memorySize uint64
 		// calculate the new memory size and expand the memory to fit
 		// the operation
