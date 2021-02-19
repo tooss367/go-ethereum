@@ -17,6 +17,7 @@
 package vm
 
 import (
+	"github.com/holiman/uint256"
 	"hash"
 	"sync/atomic"
 
@@ -321,8 +322,22 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			continue
 
 		}
+		if op >= PUSH1 && op <= PUSH32 {
+			integer := new(uint256.Int)
+			dataSize := uint64(1 + (op - PUSH1))
+			if pc+dataSize+1 < uint64(len(callContext.contract.Code) ){
+				integer.SetBytes(callContext.contract.Code[int(pc+1) : int(pc+1+dataSize)])
+			}
+			callContext.stack.push(integer)
+			pc += uint64(dataSize + 1)
+			continue
+		}
 		if op == POP {
 			callContext.stack.pop()
+			pc++
+			continue
+		}
+		if op == JUMPDEST {
 			pc++
 			continue
 		}
