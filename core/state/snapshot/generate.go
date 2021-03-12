@@ -315,11 +315,9 @@ func (dl *diskLayer) generate(stats *generatorStats) {
 		accountRange = accountCheckRange
 	)
 	if len(dl.genMarker) > 0 { // []byte{} is the start, use nil for that
-		accMarker = dl.genMarker[:common.HashLength]
-
-		// Always reset the initial account range as 1 whenever recover
-		// from the interruption.
-		accountRange = 1
+		// Always reset the initial account range as 1
+		// whenever recover from the interruption.
+		accMarker, accountRange = dl.genMarker[:common.HashLength], 1
 	}
 	var (
 		batch     = dl.diskdb.NewBatch()
@@ -329,8 +327,7 @@ func (dl *diskLayer) generate(stats *generatorStats) {
 	)
 	stats.Log("Resuming state snapshot generation", dl.root, dl.genMarker)
 
-	var checkAndFlush = func(currentLocation []byte) error {
-		var abort chan *generatorStats
+	checkAndFlush := func(currentLocation []byte) error {
 		select {
 		case abort = <-dl.genAbort:
 		default:
@@ -363,7 +360,7 @@ func (dl *diskLayer) generate(stats *generatorStats) {
 		return nil
 	}
 
-	onValue := func(key []byte, val []byte, regen bool) error {
+	onAccount := func(key []byte, val []byte, regen bool) error {
 		// Retrieve the current account and flatten it into the internal format
 		accountHash := common.BytesToHash(key)
 		var acc struct {
@@ -434,7 +431,7 @@ func (dl *diskLayer) generate(stats *generatorStats) {
 		return nil
 	}
 	for {
-		exhausted, last, err := dl.genRange(dl.root, rawdb.SnapshotAccountPrefix, "account", accOrigin, accountRange, stats, onValue, FullAccountRLP)
+		exhausted, last, err := dl.genRange(dl.root, rawdb.SnapshotAccountPrefix, "account", accOrigin, accountRange, stats, onAccount, FullAccountRLP)
 		// The procedure it aborted, either by external signal or internal error
 		if err != nil {
 			if abort == nil { // aborted by internal error, wait the signal
@@ -460,7 +457,7 @@ func (dl *diskLayer) generate(stats *generatorStats) {
 	if err := batch.Write(); err != nil {
 		log.Error("Failed to flush batch", "error", err)
 
-		abort := <-dl.genAbort
+		abort = <-dl.genAbort
 		abort <- stats
 		return
 	}
