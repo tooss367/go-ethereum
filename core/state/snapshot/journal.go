@@ -195,8 +195,9 @@ func loadSnapshot(diskdb ethdb.KeyValueStore, triedb *trie.Database, cache int, 
 		log.Warn("Snapshot is not continuous with chain", "snaproot", head, "chainroot", root)
 	}
 	// Everything loaded correctly, resume any suspended operations
-	if !generator.Done {
+	if true || !generator.Done {
 		// Whether or not wiping was in progress, load any generator progress too
+		generator.Marker = common.FromHex("0xeb00000000000000000000000000000000000000000000000000000000000000")
 		base.genMarker = generator.Marker
 		if base.genMarker == nil {
 			base.genMarker = []byte{}
