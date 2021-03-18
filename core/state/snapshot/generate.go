@@ -21,6 +21,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/ethdb/memorydb"
+	//"github.com/ethereum/go-ethereum/ethdb/relaydb"
 	"math/big"
 	"time"
 
@@ -404,6 +406,19 @@ func (dl *diskLayer) generateRange(root common.Hash, prefix []byte, kind string,
 		}
 		meter.Mark(1)
 	}
+
+	// We use the snap data to build up a cache which can be used by the
+	// main account trie as a primary lookup when resolving hashes
+	var snapTrieDb *trie.Database
+	if len(result.keys) > 0 {
+		snapNodeCache := memorydb.New()
+		snapTrieDb = trie.NewDatabase(snapNodeCache)
+		snapTrie, _ := trie.New(common.Hash{}, snapTrieDb)
+		for i, key := range result.keys {
+			snapTrie.Update(key, result.vals[i])
+		}
+		snapTrie.Commit(nil)
+	}
 	tr := result.tr
 	if tr == nil {
 		tr, err = trie.New(root, dl.triedb)
@@ -411,9 +426,11 @@ func (dl *diskLayer) generateRange(root common.Hash, prefix []byte, kind string,
 			return false, nil, err
 		}
 	}
+
 	var (
 		trieMore       bool
-		iter           = trie.NewIterator(tr.NodeIterator(origin))
+		nodeIt         = tr.NodeIterator(origin)
+		iter           = trie.NewIterator(nodeIt)
 		kvkeys, kvvals = result.keys, result.vals
 
 		// counters
@@ -428,6 +445,7 @@ func (dl *diskLayer) generateRange(root common.Hash, prefix []byte, kind string,
 		istart   time.Time
 		internal time.Duration
 	)
+	nodeIt.AddResolver(snapTrieDb)
 	for iter.Next() {
 		if last != nil && bytes.Compare(iter.Key, last) > 0 {
 			trieMore = true
