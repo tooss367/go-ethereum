@@ -21,6 +21,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/ethdb/memorydb"
+	"github.com/ethereum/go-ethereum/ethdb/relaydb"
 	"math/big"
 	"time"
 
@@ -404,13 +406,38 @@ func (dl *diskLayer) generateRange(root common.Hash, prefix []byte, kind string,
 		}
 		meter.Mark(1)
 	}
+
 	tr := result.tr
+
+	// We use the snap data to build up a cache which can be used by the
+	// main account trie as a primary lookup when resolving hashes
+
+	if len(result.keys) > 0 {
+		snapNodeCache := memorydb.New()
+		snapTrieDb := trie.NewDatabase(snapNodeCache)
+		snapTrie, _ := trie.New(common.Hash{}, snapTrieDb)
+		for i, key := range result.keys {
+			snapTrie.Update(key, result.vals[i])
+		}
+		snapRoot, _ := snapTrie.Commit(nil)
+		snapTrieDb.Commit(snapRoot, false, nil)
+		// The memory db should now hold all leaves in their hashed form
+		relay := relaydb.New(snapNodeCache, dl.diskdb)
+		defer func() {
+			primHits, relays := relay.Efficiency()
+			log.Info("Snapnodecache used", "primaries", primHits, "relays", relays)
+		}()
+		triedb := trie.NewDatabase(relay)
+		tr, _ = trie.New(root, triedb)
+	}
+
 	if tr == nil {
 		tr, err = trie.New(root, dl.triedb)
 		if err != nil {
 			return false, nil, err
 		}
 	}
+
 	var (
 		trieMore       bool
 		iter           = trie.NewIterator(tr.NodeIterator(origin))
