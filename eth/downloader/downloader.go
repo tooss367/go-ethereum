@@ -18,9 +18,11 @@
 package downloader
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/big"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,6 +37,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
 )
 
@@ -1971,9 +1974,45 @@ func (d *Downloader) DeliverNodeData(id string, data [][]byte) error {
 	return d.deliver(d.stateCh, &statePack{id, data}, stateInMeter, stateDropMeter)
 }
 
+var (
+	snapDump, _  = os.Create("snap.dump")
+	snapIndex, _ = os.Create("snap.index")
+	snapSize     uint64
+	snapLock     sync.Mutex
+)
+
 // DeliverSnapPacket is invoked from a peer's message handler when it transmits a
 // data packet for the local node to consume.
 func (d *Downloader) DeliverSnapPacket(peer *snap.Peer, packet snap.Packet) error {
+	snapLock.Lock()
+	blob, _ := rlp.EncodeToBytes(packet)
+	if _, err := snapDump.Write(blob); err != nil {
+		log.Error("Failed to write packet into dump", "err", err)
+	}
+	if err := binary.Write(snapIndex, binary.BigEndian, time.Now().UnixNano()); err != nil {
+		log.Error("Failed to write timestamp into index", "err", err)
+	}
+	if err := binary.Write(snapIndex, binary.BigEndian, snapSize); err != nil {
+		log.Error("Failed to write offset into index", "err", err)
+	}
+	snapSize += uint64(len(blob))
+
+	var kind byte
+	switch packet.(type) {
+	case *snap.AccountRangePacket:
+		kind = 0
+	case *snap.StorageRangesPacket:
+		kind = 1
+	case *snap.ByteCodesPacket:
+		kind = 2
+	case *snap.TrieNodesPacket:
+		kind = 3
+	}
+	if _, err := snapIndex.Write([]byte{kind}); err != nil {
+		log.Error("Failed to write type into index", "err", err)
+	}
+	snapLock.Unlock()
+
 	switch packet := packet.(type) {
 	case *snap.AccountRangePacket:
 		hashes, accounts, err := packet.Unpack()
