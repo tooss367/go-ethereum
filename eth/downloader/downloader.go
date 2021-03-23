@@ -1975,8 +1975,8 @@ func (d *Downloader) DeliverNodeData(id string, data [][]byte) error {
 }
 
 var (
-	snapDump, _  = os.Create("snap.dump")
-	snapIndex, _ = os.Create("snap.index")
+	snapDump, _  = os.Create("/datadir/snap.dump")
+	snapIndex, _ = os.Create("/datadir/snap.index")
 	snapSize     uint64
 	snapLock     sync.Mutex
 )
