@@ -366,7 +366,7 @@ func createStorageRequestResponseAlwaysProve(t *testPeer, root common.Hash, acco
 		origin = common.BytesToHash(bOrigin)
 	}
 	var exit bool
-	for _, account := range accounts {
+	for i, account := range accounts {
 		var keys []common.Hash
 		var vals [][]byte
 		for _, entry := range t.storageValues[account] {
@@ -379,6 +379,10 @@ func createStorageRequestResponseAlwaysProve(t *testPeer, root common.Hash, acco
 			if size > max {
 				exit = true
 			}
+		}
+
+		if i == len(accounts)-1{
+			exit = true
 		}
 		hashes = append(hashes, keys)
 		slots = append(slots, vals)
