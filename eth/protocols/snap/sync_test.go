@@ -30,6 +30,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/light"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -349,6 +350,67 @@ func createStorageRequestResponse(t *testPeer, root common.Hash, accounts []comm
 	return hashes, slots, proofs
 }
 
+//  the createStorageRequestResponseAlwaysProve tests a cornercase, where it always
+// supplies the proof for the last account, even if it is 'complete'.h
+func createStorageRequestResponseAlwaysProve(t *testPeer, root common.Hash, accounts []common.Hash, bOrigin, bLimit []byte, max uint64) (hashes [][]common.Hash, slots [][][]byte, proofs [][]byte) {
+	var (
+		size uint64
+		//limit = common.HexToHash("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+	)
+	max = max * 3 / 4
+	//if len(bLimit) > 0 {
+	//	limit = common.BytesToHash(bLimit)
+	//}
+	var origin common.Hash
+	if len(bOrigin) > 0 {
+		origin = common.BytesToHash(bOrigin)
+	}
+	var exit bool
+	for _, account := range accounts {
+		var keys []common.Hash
+		var vals [][]byte
+		for _, entry := range t.storageValues[account] {
+			if bytes.Compare(entry.k, origin[:]) < 0 {
+				exit = true
+			}
+			keys = append(keys, common.BytesToHash(entry.k))
+			vals = append(vals, entry.v)
+			size += uint64(32 + len(entry.v))
+			if size > max {
+				exit = true
+			}
+		}
+		hashes = append(hashes, keys)
+		slots = append(slots, vals)
+
+		if exit {
+			// If we're aborting, we need to prove the first and last item
+			// This terminates the response (and thus the loop)
+			proof := light.NewNodeSet()
+			stTrie := t.storageTries[account]
+
+			// Here's a potential gotcha: when constructing the proof, we cannot
+			// use the 'origin' slice directly, but must use the full 32-byte
+			// hash form.
+			if err := stTrie.Prove(origin[:], 0, proof); err != nil {
+				t.logger.Error("Could not prove inexistence of origin", "origin", origin,
+					"error", err)
+			}
+			if len(keys) > 0 {
+				lastK := (keys[len(keys)-1])[:]
+				if err := stTrie.Prove(lastK, 0, proof); err != nil {
+					t.logger.Error("Could not prove last item", "error", err)
+				}
+			}
+			for _, blob := range proof.NodeList() {
+				proofs = append(proofs, blob)
+			}
+			break
+		}
+	}
+	return hashes, slots, proofs
+}
+
 // emptyRequestAccountRangeFn is a rejects AccountRangeRequests
 func emptyRequestAccountRangeFn(t *testPeer, requestId uint64, root common.Hash, origin common.Hash, cap uint64) error {
 	var proofs [][]byte
@@ -381,6 +443,16 @@ func emptyStorageRequestHandler(t *testPeer, requestId uint64, root common.Hash,
 }
 
 func nonResponsiveStorageRequestHandler(t *testPeer, requestId uint64, root common.Hash, accounts []common.Hash, origin, limit []byte, max uint64) error {
+	return nil
+}
+
+func proofHappyStorageRequestHandler(t *testPeer, requestId uint64, root common.Hash, accounts []common.Hash, origin, limit []byte, max uint64) error {
+	hashes, slots, proofs := createStorageRequestResponseAlwaysProve(t, root, accounts, origin, limit, max)
+	if err := t.remote.OnStorage(t, requestId, hashes, slots, proofs); err != nil {
+		t.logger.Error("remote error on delivery", "error", err)
+		t.test.Errorf("Remote side rejected our delivery: %v", err)
+		close(t.cancelCh)
+	}
 	return nil
 }
 
@@ -618,6 +690,30 @@ func TestSyncWithStorage(t *testing.T) {
 	if err := syncer.Sync(sourceAccountTrie.Hash(), cancel); err != nil {
 		t.Fatalf("sync failed: %v", err)
 	}
+}
+
+// TestSyncWithStorage tests  basic sync using accounts + storage + code, against
+// a peer who insists on delivering full storage sets _and_ proofs
+func TestSyncWithStorageMisbehavingProve(t *testing.T) {
+	t.Parallel()
+
+	cancel := make(chan struct{})
+	sourceAccountTrie, elems, storageTries, storageElems := makeAccountTrieWithStorage(1, 300, true)
+
+	mkSource := func(name string) *testPeer {
+		source := newTestPeer(name, t, cancel)
+		source.accountTrie = sourceAccountTrie
+		source.accountValues = elems
+		source.storageTries = storageTries
+		source.storageValues = storageElems
+		source.storageRequestHandler = proofHappyStorageRequestHandler
+		return source
+	}
+	syncer := setupSyncer(mkSource("sourceA"))
+	if err := syncer.Sync(sourceAccountTrie.Hash(), cancel); err != nil {
+		t.Fatalf("sync failed: %v", err)
+	}
+	verifyTrie(syncer.db, sourceAccountTrie.Hash(), t)
 }
 
 // TestMultiSyncManyUseless contains one good peer, and many which doesn't return anything valuable at all
@@ -1115,4 +1211,44 @@ func makeStorageTrie(n int, db *trie.Database) (*trie.Trie, entrySlice) {
 	}
 	sort.Sort(entries)
 	return trie, entries
+}
+
+func verifyTrie(db ethdb.KeyValueStore, root common.Hash, t *testing.T) {
+	triedb := trie.NewDatabase(db)
+	accTrie, err := trie.New(root, triedb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accounts, slots := 0, 0
+	accIt := trie.NewIterator(accTrie.NodeIterator(nil))
+	for accIt.Next() {
+		var acc struct {
+			Nonce    uint64
+			Balance  *big.Int
+			Root     common.Hash
+			CodeHash []byte
+		}
+		if err := rlp.DecodeBytes(accIt.Value, &acc); err != nil {
+			log.Crit("Invalid account encountered during snapshot creation", "err", err)
+		}
+		accounts++
+		if acc.Root != emptyRoot {
+			storeTrie, err := trie.NewSecure(acc.Root, triedb)
+			if err != nil {
+				t.Fatal(err)
+			}
+			storeIt := trie.NewIterator(storeTrie.NodeIterator(nil))
+			for storeIt.Next() {
+				slots++
+			}
+			if err := storeIt.Err; err != nil {
+				t.Fatal(err)
+
+			}
+		}
+	}
+	if err := accIt.Err; err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("accounts: %d, slots: %d", accounts, slots)
 }
