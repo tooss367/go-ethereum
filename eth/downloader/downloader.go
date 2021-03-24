@@ -1371,7 +1371,9 @@ func (d *Downloader) fetchParts(deliveryCh chan dataPack, deliver func(dataPack)
 			if peer := d.peers.Peer(packet.PeerId()); peer != nil {
 				// Deliver the received chunk of data and check chain validity
 				accepted, err := deliver(packet)
-				if errors.Is(err, errInvalidChain) {
+				if errors.Is(err, errInvalidChain) || errors.Is(err, errInvalidBody) ||
+					errors.Is(err, errInvalidReceipt) {
+					d.dropPeer(peer.id)
 					return err
 				}
 				// Unless a peer delivered something completely else than requested (usually
