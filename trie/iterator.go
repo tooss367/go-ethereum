@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"container/heap"
 	"errors"
-	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -301,14 +300,11 @@ func (it *nodeIterator) peek(descend bool) (*nodeIteratorState, *int, []byte, er
 }
 
 func (it *nodeIterator) resolveHash(hash hashNode, path []byte) (node, error) {
-	fmt.Printf("resolve %x ", []byte(hash))
 	if it.primaryResolver != nil {
 		if resolved := it.primaryResolver.node(common.BytesToHash(hash)); resolved != nil {
-			fmt.Printf(" - primary hit\n")
 			return resolved, nil
 		}
 	}
-	fmt.Printf(" - primary miss\n")
 	resolved, err := it.trie.resolveHash(hash, path)
 	return resolved, err
 }
@@ -444,7 +440,6 @@ func (it *differenceIterator) Path() []byte {
 func (it *differenceIterator) AddResolver(db *Database) {
 	panic("Not implemented")
 }
-
 
 func (it *differenceIterator) Next(bool) bool {
 	// Invariants:
