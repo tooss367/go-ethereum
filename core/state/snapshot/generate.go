@@ -21,8 +21,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/ethdb/memorydb"
-	//"github.com/ethereum/go-ethereum/ethdb/relaydb"
 	"math/big"
 	"time"
 
@@ -33,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/ethdb/memorydb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -411,8 +410,7 @@ func (dl *diskLayer) generateRange(root common.Hash, prefix []byte, kind string,
 	// main account trie as a primary lookup when resolving hashes
 	var snapTrieDb *trie.Database
 	if len(result.keys) > 0 {
-		snapNodeCache := memorydb.New()
-		snapTrieDb = trie.NewDatabase(snapNodeCache)
+		snapTrieDb = trie.NewDatabase(memorydb.New())
 		snapTrie, _ := trie.New(common.Hash{}, snapTrieDb)
 		for i, key := range result.keys {
 			snapTrie.Update(key, result.vals[i])
@@ -426,10 +424,10 @@ func (dl *diskLayer) generateRange(root common.Hash, prefix []byte, kind string,
 			return false, nil, err
 		}
 	}
-
+	nodeIt := tr.NodeIterator(origin)
+	nodeIt.AddResolver(snapTrieDb)
 	var (
 		trieMore       bool
-		nodeIt         = tr.NodeIterator(origin)
 		iter           = trie.NewIterator(nodeIt)
 		kvkeys, kvvals = result.keys, result.vals
 
@@ -445,7 +443,6 @@ func (dl *diskLayer) generateRange(root common.Hash, prefix []byte, kind string,
 		istart   time.Time
 		internal time.Duration
 	)
-	nodeIt.AddResolver(snapTrieDb)
 	for iter.Next() {
 		if last != nil && bytes.Compare(iter.Key, last) > 0 {
 			trieMore = true
