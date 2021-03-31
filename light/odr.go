@@ -19,6 +19,7 @@ package light
 import (
 	"context"
 	"errors"
+	"github.com/ethereum/go-ethereum/trie"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -85,7 +86,7 @@ func StorageTrieID(state *TrieID, addrHash, root common.Hash) *TrieID {
 type TrieRequest struct {
 	Id    *TrieID
 	Key   []byte
-	Proof *NodeSet
+	Proof *trie.NodeSet
 }
 
 // StoreResult stores the retrieved data in local database
@@ -141,7 +142,7 @@ type ChtRequest struct {
 	ChtRoot          common.Hash
 	Header           *types.Header
 	Td               *big.Int
-	Proof            *NodeSet
+	Proof            *trie.NodeSet
 }
 
 // StoreResult stores the retrieved data in local database
@@ -161,7 +162,7 @@ type BloomRequest struct {
 	SectionIndexList []uint64
 	BloomTrieRoot    common.Hash
 	BloomBits        [][]byte
-	Proofs           *NodeSet
+	Proofs           *trie.NodeSet
 }
 
 // StoreResult stores the retrieved data in local database
