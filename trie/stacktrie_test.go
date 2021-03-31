@@ -2,6 +2,7 @@ package trie
 
 import (
 	"bytes"
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -213,5 +214,140 @@ func TestStacktrieSerialization(t *testing.T) {
 	}
 	if have, want := st.Hash(), nt.Hash(); have != want {
 		t.Fatalf("have %#x want %#x", have, want)
+	}
+}
+
+type keyValue struct {
+	k []byte
+	v []byte
+}
+
+func kvPair(k, v string) keyValue {
+	return keyValue{
+		k: common.FromHex(k),
+		v: common.FromHex(v),
+	}
+}
+
+func TestSTProof(t *testing.T) {
+	kvs := []keyValue{
+		// These should form a lefthand side node
+		kvPair("0x00000000000000000000000000000001", "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111"),
+		kvPair("0x00000000000000000000000000000002", "222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222"),
+		kvPair("0x00000000000000000000000000000003", "333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333"),
+		kvPair("0x00000000000000000000000000000004", "444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444"),
+		// These should for a fullnode in the middle
+		kvPair("0x61111111111111111111100000000000", "555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555"),
+		kvPair("0x61111111111111111111100000000001", "666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666"),
+		kvPair("0x61111111111111111111100000000002", "777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777"),
+		// This we want to prove
+		kvPair("0x61111111111111111111111111111111", "888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888"),
+		kvPair("0x61111111111111111111111111111112", "999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999"),
+
+		kvPair("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+	}
+
+	refTrie, _ := New(common.Hash{}, NewDatabase(memorydb.New()))
+	for _, kv := range kvs {
+		refTrie.TryUpdate(kv.k, kv.v)
+	}
+	testStackTrieProof(t, kvs, refTrie, 7)
+	testStackTrieProof(t, kvs, refTrie, 6)
+	testStackTrieProof(t, kvs, refTrie, 5)
+	testStackTrieProof(t, kvs, refTrie, 4)
+	testStackTrieProof(t, kvs, refTrie, 3)
+	testStackTrieProof(t, kvs, refTrie, 2)
+	testStackTrieProof(t, kvs, refTrie, 1)
+	testStackTrieProof(t, kvs, refTrie, 0)
+}
+
+func testStackTrieProof(t *testing.T, kvs []keyValue, refTrie *Trie, index int) {
+	// Prove elem
+	plist, err := refTrie.ProveWithPaths(kvs[index].k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := keybytesToHex(kvs[index].k)
+	pathIndex := len(path) - 1
+	makeFNParent := func(fn fullN, child *StackTrie) *StackTrie {
+		newNode := &StackTrie{
+			nodeType:  branchNode,
+			key:       common.CopyBytes(path[:pathIndex]),
+			keyOffset: pathIndex,
+		}
+		// Add the hashed left-hand siblings
+		for k, v := range fn.siblings {
+			newNode.children[k] = &StackTrie{
+				val:      v.([]byte),
+				nodeType: hashedNode,
+			}
+		}
+		newNode.children[path[pathIndex]] = child
+		pathIndex--
+		return newNode
+	}
+	makeSNParent := func(sn shortN, child *StackTrie) *StackTrie {
+		pathIndex -= len(sn.ext)
+		elem := &StackTrie{
+			key:       common.CopyBytes(sn.ext),
+			keyOffset: pathIndex + 1,
+		}
+		if child != nil {
+			elem.nodeType = extNode
+			elem.children[0] = child
+			return elem
+		}
+		// If we're not adding a child node here, then this is the leaf
+		elem.nodeType = leafNode
+		elem.val = sn.val
+		// remove the terminator
+		elem.key = elem.key[:len(elem.key)-1]
+		return elem
+	}
+	var st *StackTrie
+	// Go bottom up, so reverse the proof list
+	for i := len(plist) - 1; i >= 0; i-- {
+		v := plist[i]
+		switch vv := v.(type) {
+		case fullN:
+			st = makeFNParent(vv, st)
+		case shortN:
+			st = makeSNParent(vv, st)
+		}
+	}
+	//st.dumpTrie(0)
+	for _, kv := range kvs[index+1:] {
+		st.TryUpdate(kv.k, common.CopyBytes(kv.v))
+	}
+	t.Logf("st root: %#x", st.Hash())
+	if want, have := refTrie.Hash(), st.Hash(); have != want {
+		t.Fatalf("Proving element %d, have %#x, want %#x", index, have, want)
+	}
+}
+
+func dumpTrie(n node, lvl int) {
+	var indent []byte
+	for i := 0; i < lvl; i++ {
+		indent = append(indent, ' ')
+	}
+	switch nn := n.(type) {
+	case nil:
+		fmt.Printf("<nil>")
+	case *fullNode:
+		for i := 0; i < 16; i++ {
+			if nn.Children[i] == nil {
+				continue
+			}
+			fmt.Printf("\n%s %#x. ", string(indent), i)
+			dumpTrie(nn.Children[i], lvl+1)
+		}
+		fmt.Println("")
+	case *shortNode:
+		fmt.Printf("%s: sn(%#x)", string(indent), nn.Key)
+		dumpTrie(nn.Val, lvl+1)
+	case valueNode:
+		fmt.Printf(" %x", string(nn))
+	default:
+		fmt.Printf("%T", nn)
 	}
 }
