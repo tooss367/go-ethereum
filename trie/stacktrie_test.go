@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math/big"
+	"sort"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -222,52 +223,65 @@ type keyValue struct {
 	v []byte
 }
 
-func kvPair(k, v string) keyValue {
-	return keyValue{
-		k: common.FromHex(k),
-		v: common.FromHex(v),
-	}
-}
-
 func TestSTProof(t *testing.T) {
-	kvs := []keyValue{
+
+	pair := func(k, v string) *kv { return &kv{k: common.FromHex(k), v: common.FromHex(v)} }
+
+	entries := entrySlice{
 		// These should form a lefthand side node
-		kvPair("0x00000000000000000000000000000001", "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111"),
-		kvPair("0x00000000000000000000000000000002", "222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222"),
-		kvPair("0x00000000000000000000000000000003", "333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333"),
-		kvPair("0x00000000000000000000000000000004", "444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444"),
+		pair("0x00000000000000000000000000000001", "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111"),
+		pair("0x00000000000000000000000000000002", "222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222"),
+		pair("0x00000000000000000000000000000003", "333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333"),
+		pair("0x00000000000000000000000000000004", "444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444"),
 		// These should for a fullnode in the middle
-		kvPair("0x61111111111111111111100000000000", "555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555"),
-		kvPair("0x61111111111111111111100000000001", "666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666"),
-		kvPair("0x61111111111111111111100000000002", "777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777"),
-		// This we want to prove
-		kvPair("0x61111111111111111111111111111111", "888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888"),
-		kvPair("0x61111111111111111111111111111112", "999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999"),
+		pair("0x61111111111111111111100000000000", "555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555"),
+		pair("0x61111111111111111111100000000001", "666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666"),
+		pair("0x61111111111111111111100000000002", "777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777"),
 
-		kvPair("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+		pair("0x61111111111111111111111111111111", "888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888"),
+		pair("0x61111111111111111111111111111112", "999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999"),
+
+		pair("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
 	}
-
+	sort.Sort(entries)
 	refTrie, _ := New(common.Hash{}, NewDatabase(memorydb.New()))
-	for _, kv := range kvs {
+	for _, kv := range entries {
 		refTrie.TryUpdate(kv.k, kv.v)
 	}
-	testStackTrieProof(t, kvs, refTrie, 7)
-	testStackTrieProof(t, kvs, refTrie, 6)
-	testStackTrieProof(t, kvs, refTrie, 5)
-	testStackTrieProof(t, kvs, refTrie, 4)
-	testStackTrieProof(t, kvs, refTrie, 3)
-	testStackTrieProof(t, kvs, refTrie, 2)
-	testStackTrieProof(t, kvs, refTrie, 1)
-	testStackTrieProof(t, kvs, refTrie, 0)
+	testStackTrieProof(t, entries, refTrie, 7)
+	testStackTrieProof(t, entries, refTrie, 6)
+	testStackTrieProof(t, entries, refTrie, 5)
+	testStackTrieProof(t, entries, refTrie, 4)
+	testStackTrieProof(t, entries, refTrie, 3)
+	testStackTrieProof(t, entries, refTrie, 2)
+	testStackTrieProof(t, entries, refTrie, 1)
+	testStackTrieProof(t, entries, refTrie, 0)
 }
 
-func testStackTrieProof(t *testing.T, kvs []keyValue, refTrie *Trie, index int) {
-	// Prove elem
-	plist, err := refTrie.ProveWithPaths(kvs[index].k)
-	if err != nil {
-		t.Fatal(err)
+func TestSTProofRandom(t *testing.T) {
+
+	trie, vals := randomTrie(8192)
+	var entries entrySlice
+	for _, kv := range vals {
+		entries = append(entries, kv)
 	}
-	path := keybytesToHex(kvs[index].k)
+	sort.Sort(entries)
+
+	refTrie, _ := New(common.Hash{}, NewDatabase(memorydb.New()))
+	for _, kv := range entries {
+		refTrie.TryUpdate(kv.k, kv.v)
+	}
+	testStackTrieProof(t, entries, trie, 7)
+	//testStackTrieProof(t, entries, refTrie, 6)
+	//testStackTrieProof(t, entries, refTrie, 5)
+	//testStackTrieProof(t, entries, refTrie, 4)
+	//testStackTrieProof(t, entries, refTrie, 3)
+	//testStackTrieProof(t, entries, refTrie, 2)
+	//testStackTrieProof(t, entries, refTrie, 1)
+}
+
+func prepareStackTrie(key []byte, proof []interface{}) (*StackTrie, error) {
+	path := keybytesToHex(key)
 	pathIndex := len(path) - 1
 	makeFNParent := func(fn fullN, child *StackTrie) *StackTrie {
 		newNode := &StackTrie{
@@ -278,7 +292,7 @@ func testStackTrieProof(t *testing.T, kvs []keyValue, refTrie *Trie, index int) 
 		// Add the hashed left-hand siblings
 		for k, v := range fn.siblings {
 			newNode.children[k] = &StackTrie{
-				val:      v.([]byte),
+				val:      common.CopyBytes(v.([]byte)),
 				nodeType: hashedNode,
 			}
 		}
@@ -299,21 +313,35 @@ func testStackTrieProof(t *testing.T, kvs []keyValue, refTrie *Trie, index int) 
 		}
 		// If we're not adding a child node here, then this is the leaf
 		elem.nodeType = leafNode
-		elem.val = sn.val
+		elem.val = common.CopyBytes(sn.val)
 		// remove the terminator
 		elem.key = elem.key[:len(elem.key)-1]
 		return elem
 	}
 	var st *StackTrie
 	// Go bottom up, so reverse the proof list
-	for i := len(plist) - 1; i >= 0; i-- {
-		v := plist[i]
+	for i := len(proof) - 1; i >= 0; i-- {
+		v := proof[i]
 		switch vv := v.(type) {
 		case fullN:
 			st = makeFNParent(vv, st)
 		case shortN:
 			st = makeSNParent(vv, st)
 		}
+	}
+	return st, nil
+}
+
+func testStackTrieProof(t *testing.T, kvs entrySlice, refTrie *Trie, index int) {
+	// Prove elem
+	plist, err := refTrie.ProveWithPaths(kvs[index].k)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := prepareStackTrie(kvs[index].k, plist)
+	if err != nil {
+		t.Fatal(err)
 	}
 	//st.dumpTrie(0)
 	for _, kv := range kvs[index+1:] {
@@ -323,6 +351,70 @@ func testStackTrieProof(t *testing.T, kvs []keyValue, refTrie *Trie, index int) 
 	if want, have := refTrie.Hash(), st.Hash(); have != want {
 		t.Fatalf("Proving element %d, have %#x, want %#x", index, have, want)
 	}
+}
+
+func BenchmarkRangeVerification10(b *testing.B)   { benchmarkVerifyStackRangeProof(b, 10) }
+func BenchmarkRangeVerification100(b *testing.B)  { benchmarkVerifyStackRangeProof(b, 100) }
+func BenchmarkRangeVerification1000(b *testing.B) { benchmarkVerifyStackRangeProof(b, 1000) }
+func BenchmarkRangeVerification5000(b *testing.B) { benchmarkVerifyStackRangeProof(b, 5000) }
+
+func benchmarkVerifyStackRangeProof(b *testing.B, size int) {
+	trie, vals := randomTrie(8192)
+	var entries entrySlice
+	for _, kv := range vals {
+		entries = append(entries, kv)
+	}
+	sort.Sort(entries)
+	start := len(entries) - size
+	//start := 2
+	end := len(entries) - 1
+	//end := start + size
+	proof := memorydb.New()
+	if err := trie.Prove(entries[start].k, 0, proof); err != nil {
+		b.Fatalf("Failed to prove the first node %v", err)
+	}
+	if err := trie.Prove(entries[end-1].k, 0, proof); err != nil {
+		b.Fatalf("Failed to prove the last node %v", err)
+	}
+	var keys [][]byte
+	var values [][]byte
+	for i := start; i < end; i++ {
+		keys = append(keys, entries[i].k)
+		values = append(values, entries[i].v)
+	}
+
+	b.Run("rangeprover", func(b *testing.B) {
+		b.ResetTimer()
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_, _, err := VerifyRangeProof(trie.Hash(), keys[0], keys[len(keys)-1], keys, values, proof)
+			if err != nil {
+				b.Fatalf("Case %d(%d->%d) expect no error, got %v", i, start, end-1, err)
+			}
+		}
+	})
+
+	b.Run("stackbased", func(b *testing.B) {
+		key := common.CopyBytes(keys[0])
+		plist, err := trie.ProveWithPaths(key)
+		if err != nil {
+			b.Fatal(err)
+		}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			st, err := prepareStackTrie(key, plist)
+			if err != nil {
+				b.Fatal(err)
+			}
+			for _, kv := range entries[start+1:] {
+				st.TryUpdate(kv.k, common.CopyBytes(kv.v))
+			}
+			if st.Hash() != trie.Hash() {
+				b.Fatalf("Case %d(%d->%d) expect no error, got %v", i, start, end-1, st.Hash())
+			}
+		}
+	})
 }
 
 func dumpTrie(n node, lvl int) {
