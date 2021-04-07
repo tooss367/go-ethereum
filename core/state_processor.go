@@ -100,7 +100,7 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 	if err != nil {
 		return nil, err
 	}
-
+	evm.RegisterRefund(result.Refund)
 	// Update the state with pending changes.
 	var root []byte
 	if config.IsByzantium(header.Number) {
