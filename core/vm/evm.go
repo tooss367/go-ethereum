@@ -18,12 +18,14 @@ package vm
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 )
@@ -118,6 +120,23 @@ type TxContext struct {
 	GasPrice *big.Int       // Provides information for GASPRICE
 }
 
+type gasAccountant struct {
+	static  [256]uint64
+	dynamic [256]uint64
+	waste   uint64
+}
+
+func (ga *gasAccountant) registerStatic(op OpCode, cost uint64) {
+	ga.static[op] += cost
+}
+
+func (ga *gasAccountant) registerDynamic(op OpCode, cost uint64) {
+	ga.dynamic[op] += cost
+}
+func (ga *gasAccountant) registerWaste(cost uint64) {
+	ga.waste += cost
+}
+
 // EVM is the Ethereum Virtual Machine base object and provides
 // the necessary tools to run a contract on the given state with
 // the provided context. It should be noted that any error
@@ -154,6 +173,8 @@ type EVM struct {
 	// available gas is calculated in gasCall* according to the 63/64 rule and later
 	// applied in opCall*.
 	callGasTemp uint64
+
+	accountant *gasAccountant
 }
 
 // NewEVM returns a new EVM. The returned EVM is not thread safe and should
@@ -531,3 +552,22 @@ func (evm *EVM) Create2(caller ContractRef, code []byte, gas uint64, endowment *
 
 // ChainConfig returns the environment's chain configuration
 func (evm *EVM) ChainConfig() *params.ChainConfig { return evm.chainConfig }
+
+func (evm *EVM) EnableGasAccounting() {
+	evm.accountant = &gasAccountant{}
+}
+
+func (evm *EVM) ReportGasUsage() {
+	for opc, gas := range evm.accountant.dynamic {
+		name := fmt.Sprintf("gas/dynamic/%v", OpCode(opc).String())
+		m := metrics.GetOrRegisterMeter(name, nil)
+		m.Mark(int64(gas))
+	}
+	for opc, gas := range evm.accountant.static {
+		name := fmt.Sprintf("gas/static/%v", OpCode(opc).String())
+		m := metrics.GetOrRegisterMeter(name, nil)
+		m.Mark(int64(gas))
+	}
+	m := metrics.GetOrRegisterMeter("gas/waste", nil)
+	m.Mark(int64(evm.accountant.waste))
+}

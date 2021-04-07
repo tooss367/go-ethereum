@@ -243,6 +243,10 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			return nil, ErrOutOfGas
 		}
 
+		if in.evm.accountant != nil {
+			in.evm.accountant.registerStatic(op, operation.constantGas)
+		}
+
 		var memorySize uint64
 		// calculate the new memory size and expand the memory to fit
 		// the operation
@@ -269,6 +273,13 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			if err != nil || !contract.UseGas(dynamicCost) {
 				return nil, ErrOutOfGas
 			}
+			if in.evm.accountant != nil {
+				if op == CALL || op == CALLCODE || op == DELEGATECALL || op == STATICCALL {
+					in.evm.accountant.registerDynamic(op, dynamicCost-in.evm.callGasTemp)
+				} else {
+					in.evm.accountant.registerDynamic(op, dynamicCost)
+				}
+			}
 		}
 		if memorySize > 0 {
 			mem.Resize(memorySize)
@@ -289,6 +300,9 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 
 		switch {
 		case err != nil:
+			if in.evm.accountant != nil {
+				in.evm.accountant.registerWaste(callContext.Contract.Gas)
+			}
 			return nil, err
 		case operation.reverts:
 			return res, ErrExecutionReverted
