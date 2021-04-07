@@ -121,10 +121,11 @@ type TxContext struct {
 }
 
 type gasAccountant struct {
-	static  [256]uint64
-	dynamic [256]uint64
-	waste   uint64
-	refund  uint64
+	static    [256]uint64
+	dynamic   [256]uint64
+	waste     uint64
+	refund    uint64
+	intrinsic uint64
 }
 
 func (ga *gasAccountant) registerStatic(op OpCode, cost uint64) {
@@ -139,6 +140,9 @@ func (ga *gasAccountant) registerWaste(cost uint64) {
 }
 func (ga *gasAccountant) registerRefund(cost uint64) {
 	ga.refund += cost
+}
+func (ga *gasAccountant) registerIntrinsic(cost uint64) {
+	ga.intrinsic += cost
 }
 
 // EVM is the Ethereum Virtual Machine base object and provides
@@ -565,6 +569,11 @@ func (evm *EVM) RegisterRefund(gas uint64) {
 		evm.accountant.registerRefund(gas)
 	}
 }
+func (evm *EVM) RegisterIntrinsic(gas uint64) {
+	if evm.accountant != nil {
+		evm.accountant.registerIntrinsic(gas)
+	}
+}
 
 func (evm *EVM) reportInterval(start, end byte) {
 	var static uint64
@@ -599,4 +608,5 @@ func (evm *EVM) ReportGasUsage() {
 	evm.reportInterval(0xf0, 0xfF)
 	metrics.GetOrRegisterMeter("gas/waste", nil).Mark(int64(evm.accountant.waste))
 	metrics.GetOrRegisterMeter("gas/refund", nil).Mark(-int64(evm.accountant.refund))
+	metrics.GetOrRegisterMeter("gas/intrinsic", nil).Mark(int64(evm.accountant.intrinsic))
 }

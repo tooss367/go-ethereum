@@ -101,6 +101,7 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 		return nil, err
 	}
 	evm.RegisterRefund(result.Refund)
+	evm.RegisterIntrinsic(result.IntrinsicGas)
 	// Update the state with pending changes.
 	var root []byte
 	if config.IsByzantium(header.Number) {

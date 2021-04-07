@@ -77,7 +77,9 @@ type ExecutionResult struct {
 	UsedGas    uint64 // Total used gas but include the refunded gas
 	Err        error  // Any error encountered during the execution(listed in core/vm/errors.go)
 	ReturnData []byte // Returned data from evm(function result or data supplied with revert opcode)
-	Refund     uint64
+
+	Refund       uint64
+	IntrinsicGas uint64
 }
 
 // Unwrap returns the internal evm error which allows us for further
@@ -252,6 +254,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	if st.gas < gas {
 		return nil, fmt.Errorf("%w: have %d, want %d", ErrIntrinsicGas, st.gas, gas)
 	}
+	intrinsic := gas
 	st.gas -= gas
 
 	// Check clause 6
@@ -279,10 +282,11 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	st.state.AddBalance(st.evm.Context.Coinbase, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), st.gasPrice))
 
 	return &ExecutionResult{
-		UsedGas: st.gasUsed(),
-		Err:        vmerr,
-		ReturnData: ret,
-		Refund: refund,
+		UsedGas:      st.gasUsed(),
+		Err:          vmerr,
+		ReturnData:   ret,
+		Refund:       refund,
+		IntrinsicGas: intrinsic,
 	}, nil
 }
 
