@@ -557,17 +557,35 @@ func (evm *EVM) EnableGasAccounting() {
 	evm.accountant = &gasAccountant{}
 }
 
+func (evm *EVM) reportInterval(start, end byte) {
+	var static uint64
+	var dynamic uint64
+	for op := start; op <= end; op++ {
+		static += evm.accountant.static[op]
+		dynamic += evm.accountant.dynamic[op]
+	}
+	if static > 0 {
+		metrics.GetOrRegisterMeter(fmt.Sprintf("gas/static/%02x-%02x", start, end), nil).Mark(int64(static))
+	}
+	if dynamic > 0 {
+		metrics.GetOrRegisterMeter(fmt.Sprintf("gas/dynamic/%02x-%02x", start, end), nil).Mark(int64(dynamic))
+	}
+}
 func (evm *EVM) ReportGasUsage() {
-	for opc, gas := range evm.accountant.dynamic {
-		name := fmt.Sprintf("gas/dynamic/%v", OpCode(opc).String())
-		m := metrics.GetOrRegisterMeter(name, nil)
-		m.Mark(int64(gas))
-	}
-	for opc, gas := range evm.accountant.static {
-		name := fmt.Sprintf("gas/static/%v", OpCode(opc).String())
-		m := metrics.GetOrRegisterMeter(name, nil)
-		m.Mark(int64(gas))
-	}
-	m := metrics.GetOrRegisterMeter("gas/waste", nil)
-	m.Mark(int64(evm.accountant.waste))
+	evm.reportInterval(0x00, 0x0F)
+	evm.reportInterval(0x10, 0x1F)
+	evm.reportInterval(0x20, 0x2F)
+	evm.reportInterval(0x30, 0x3F)
+	evm.reportInterval(0x50, 0x5F)
+	evm.reportInterval(0x60, 0x6F)
+	evm.reportInterval(0x70, 0x7F)
+	evm.reportInterval(0x80, 0x8F)
+	evm.reportInterval(0x90, 0x9F)
+	evm.reportInterval(0xa0, 0xaF)
+	evm.reportInterval(0xb0, 0xbF)
+	evm.reportInterval(0xc0, 0xcF)
+	evm.reportInterval(0xd0, 0xdF)
+	evm.reportInterval(0xe0, 0xeF)
+	evm.reportInterval(0xf0, 0xfF)
+	metrics.GetOrRegisterMeter("gas/waste", nil).Mark(int64(evm.accountant.waste))
 }
