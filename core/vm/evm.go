@@ -560,7 +560,8 @@ func (evm *EVM) EnableGasAccounting() {
 func (evm *EVM) reportInterval(start, end byte) {
 	var static uint64
 	var dynamic uint64
-	for op := start; op <= end; op++ {
+	for op := start; op >= start &&
+		op <= end; op++ {
 		static += evm.accountant.static[op]
 		dynamic += evm.accountant.dynamic[op]
 	}
