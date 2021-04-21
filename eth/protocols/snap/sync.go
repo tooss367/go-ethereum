@@ -1806,7 +1806,19 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 						next    common.Hash
 						keys    = res.hashes[i]
 						lastKey = keys[len(keys)-1]
+						chunks  = uint64(storageConcurrency)
 					)
+					if estimate, err := estimateRemainingSlotCount(len(keys), lastKey); err == nil {
+						// If the number of slots remaining is low, decrease the parallelism.
+						// 8000 is roughly what fits into 500KB
+						if n := estimate / 8000; n < chunks {
+							chunks = n
+						}
+						if chunks == 0 {
+							chunks++
+						}
+						log.Info("Storage estimation", "estimate", estimate, "chunks", chunks)
+					}
 					// Our first task is the one that was just filled by this response.
 					// It will be immediately filled further below
 					tasks = append(tasks, &storageTask{
@@ -1816,17 +1828,18 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 						genBatch: batch,
 						genTrie:  trie.NewStackTrie(batch),
 					})
+					log.Info("Created (large) storage sync first-task", "account", account, "root", acc.Root, "last", lastKey)
 					// For the remaining tasks, we divide up the remaining segment
 					// (0xFFFFF-last) / 16
 					step := new(big.Int).Exp(common.Big2, common.Big256, nil)
 					step.Sub(step, lastKey.Big())
-					step.Div(step, big.NewInt(int64(storageConcurrency)))
+					step.Div(step, big.NewInt(int64(chunks)))
 					// The next request starts +1 from the last key we got
 					next = common.BigToHash(new(big.Int).Add(lastKey.Big(), common.Big1))
 
-					for k := 0; k < storageConcurrency; k++ {
+					for k := 0; k < int(chunks); k++ {
 						last := common.BigToHash(new(big.Int).Add(next.Big(), step))
-						if k == storageConcurrency-1 {
+						if k == int(chunks-1) {
 							// Make sure we don't overflow if the step is not a proper divisor
 							last = common.HexToHash("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
 						}
@@ -1838,7 +1851,7 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 							genBatch: batch,
 							genTrie:  trie.NewStackTrie(batch),
 						})
-						log.Debug("Created storage sync task", "account", account, "root", acc.Root, "from", next, "last", last)
+						log.Info("Created (large) storage sync task", "account", account, "root", acc.Root, "from", next, "last", last, "parallelism", chunks)
 						next = common.BigToHash(new(big.Int).Add(last.Big(), common.Big1))
 					}
 					res.mainTask.SubTasks[account] = tasks
