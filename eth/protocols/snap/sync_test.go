@@ -1713,5 +1713,30 @@ func TestSlotEstimation(t *testing.T) {
 			t.Errorf("test %d: have %d want %d", i, have, want)
 		}
 	}
+}
 
+// TODO (@holiman): fix up this testcase properly
+func TestHashRange(t *testing.T) {
+	lastKey := common.HexToHash("0x1000000000000000000000000000000000000000000000000000000000000000")
+	nKeys := 10000
+	estimate, err := estimateRemainingSlotCount(nKeys, lastKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunks := 1 + estimate/(2*10000)
+	t.Logf("Chunks: %d", chunks)
+
+	r := newHashRange(lastKey, chunks)
+	t.Logf("Step size: %x", r.stepSize)
+	next := common.Hash{}
+	last := r.Step()
+	i := 0
+	fmt.Printf("Chunk %d, from %x to %x\n", i, next, last)
+	chunks--
+	i++
+	for ; chunks > 0; chunks, i = chunks-1, i+1 {
+		next = r.Next()
+		last = r.Step()
+		fmt.Printf("Chunk %d, from %x to %x\n", i, next, last)
+	}
 }

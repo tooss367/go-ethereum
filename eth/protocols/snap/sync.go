@@ -1803,7 +1803,6 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 				// the subtasks for it within the main account task
 				if tasks, ok := res.mainTask.SubTasks[account]; !ok {
 					var (
-						next    common.Hash
 						keys    = res.hashes[i]
 						lastKey = keys[len(keys)-1]
 						chunks  = uint64(storageConcurrency)
@@ -1813,46 +1812,35 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 						// Somewhere on the order of 10K slots fits into a packet. We'd rather not chunk if
 						// each chunk is going to be only one single packet, so we use a factor of 2 to
 						// avoid chunking if we expect the remaining data to be filled with ~2 packets.
-						if n := estimate / (2 * 10000); n < chunks {
-							chunks = n
+						if n := estimate / (2 * 10000); n+1 < chunks {
+							chunks = n + 1
 						}
-						// Note, 'chunks' can become zero here, which means that the
-						// first task will be the only one used, and there will be no chunking at all.
-						log.Info("Storage estimation", "delivered", len(keys), "remaining", estimate, "parallelism", chunks)
+						log.Info("Storage estimation", "delivered", len(keys), "remaining", estimate, "chunks", chunks)
 					}
+					r := newHashRange(lastKey, chunks)
 					// Our first task is the one that was just filled by this response.
 					tasks = append(tasks, &storageTask{
 						Next:     common.Hash{},
-						Last:     lastKey,
+						Last:     r.Step(),
 						root:     acc.Root,
 						genBatch: batch,
 						genTrie:  trie.NewStackTrie(batch),
 					})
-					if chunks > 0 {
-						// For the remaining tasks, we divide up the remaining segment
-						// (0xFFFFF-last) / 16
-						step := new(big.Int).Exp(common.Big2, common.Big256, nil)
-						step.Sub(step, lastKey.Big())
-						step.Div(step, big.NewInt(int64(chunks)))
-						// The next request starts +1 from the last key we got
-						next = common.BigToHash(new(big.Int).Add(lastKey.Big(), common.Big1))
-						for k := 0; k < int(chunks); k++ {
-							last := common.BigToHash(new(big.Int).Add(next.Big(), step))
-							batch := s.db.NewBatch()
-							tasks = append(tasks, &storageTask{
-								Next:     next,
-								Last:     last,
-								root:     acc.Root,
-								genBatch: batch,
-								genTrie:  trie.NewStackTrie(batch),
-							})
-							next = common.BigToHash(new(big.Int).Add(last.Big(), common.Big1))
-						}
+					chunks--
+					for ; chunks > 0; chunks-- {
+						batch := s.db.NewBatch()
+						tasks = append(tasks, &storageTask{
+							Next:     r.Next(),
+							Last:     r.Step(),
+							root:     acc.Root,
+							genBatch: batch,
+							genTrie:  trie.NewStackTrie(batch),
+						})
 					}
 					// Make sure we don't overflow if the step is not a proper divisor
 					tasks[len(tasks)-1].Last = common.HexToHash("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
 					for _, task := range tasks {
-						log.Info("Created (large) storage sync task", "account", account, "root", acc.Root, "from", task.Next, "last", task.Last, "parallelism", chunks)
+						log.Info("Created storage sync task", "account", account, "root", acc.Root, "from", task.Next, "last", task.Last)
 					}
 					res.mainTask.SubTasks[account] = tasks
 
