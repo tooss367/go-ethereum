@@ -1810,7 +1810,7 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 					// Our first task is the one that was just filled by this response.
 					// It will be immediately filled further below
 					tasks = append(tasks, &storageTask{
-						Next:     next,
+						Next:     common.Hash{},
 						Last:     lastKey,
 						root:     acc.Root,
 						genBatch: batch,
@@ -1822,7 +1822,7 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 					step.Sub(step, lastKey.Big())
 					step.Div(step, big.NewInt(int64(storageConcurrency)))
 					// The next request starts +1 from the last key we got
-					next = common.BigToHash(new(big.Int).Add(next.Big(), common.Big1))
+					next = common.BigToHash(new(big.Int).Add(lastKey.Big(), common.Big1))
 
 					for k := 0; k < storageConcurrency; k++ {
 						last := common.BigToHash(new(big.Int).Add(next.Big(), step))
