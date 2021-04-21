@@ -1810,8 +1810,10 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 					)
 					if estimate, err := estimateRemainingSlotCount(len(keys), lastKey); err == nil {
 						// If the number of slots remaining is low, decrease the parallelism.
-						// 8000 is roughly what fits into 500KB
-						if n := estimate / 8000; n < chunks {
+						// Somewhere on the order of 10K slots fits into a packet. We'd rather not chunk if
+						// each chunk is going to be only one single packet, so we use a factor of 2 to
+						// avoid chunking if we expect the remaining data to be filled with ~2 packets.
+						if n := estimate / (2 * 10000); n < chunks {
 							chunks = n
 						}
 						// Note, 'chunks' can become zero here, which means that the
