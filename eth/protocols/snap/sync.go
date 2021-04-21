@@ -1803,14 +1803,27 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 				// the subtasks for it within the main account task
 				if tasks, ok := res.mainTask.SubTasks[account]; !ok {
 					var (
-						next common.Hash
+						next    common.Hash
+						keys    = res.hashes[i]
+						lastKey = keys[len(keys)-1]
 					)
-					step := new(big.Int).Sub(
-						new(big.Int).Div(
-							new(big.Int).Exp(common.Big2, common.Big256, nil),
-							big.NewInt(int64(storageConcurrency)),
-						), common.Big1,
-					)
+					// Our first task is the one that was just filled by this response.
+					// It will be immediately filled further below
+					tasks = append(tasks, &storageTask{
+						Next:     next,
+						Last:     lastKey,
+						root:     acc.Root,
+						genBatch: batch,
+						genTrie:  trie.NewStackTrie(batch),
+					})
+					// For the remaining tasks, we divide up the remaining segment
+					// (0xFFFFF-last) / 16
+					step := new(big.Int).Exp(common.Big2, common.Big256, nil)
+					step.Sub(step, lastKey.Big())
+					step.Div(step, big.NewInt(int64(storageConcurrency)))
+					// The next request starts +1 from the last key we got
+					next = common.BigToHash(new(big.Int).Add(next.Big(), common.Big1))
+
 					for k := 0; k < storageConcurrency; k++ {
 						last := common.BigToHash(new(big.Int).Add(next.Big(), step))
 						if k == storageConcurrency-1 {
@@ -2714,4 +2727,21 @@ func (s *Syncer) reportHealProgress(force bool) {
 	)
 	log.Info("State heal in progress", "accounts", accounts, "slots", storage,
 		"codes", bytecode, "nodes", trienode, "pending", s.healer.scheduler.Pending())
+}
+
+// estimateRemainingSlotCount tries to determine roughly how many slots are left in a contract storage,
+// based on the number of keys and the last hash. This method assumes that the hashes
+// are lexicographically ordered, and somewhat evenly distributed.
+func estimateRemainingSlotCount(n int, last common.Hash) (uint64, error) {
+	if last == (common.Hash{}) {
+		return 0, errors.New("last hash was empty")
+	}
+	space := common.HexToHash("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").Big()
+	space.Mul(space, big.NewInt(int64(n)))
+	space.Div(space, last.Big())
+	if !space.IsUint64() {
+		// probably due to too few slots for estimation
+		return 0, errors.New("too few slots for estimation")
+	}
+	return space.Uint64() - uint64(n), nil
 }
