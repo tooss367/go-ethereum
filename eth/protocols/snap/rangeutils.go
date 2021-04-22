@@ -53,3 +53,10 @@ func (r *hashRange) Step() common.Hash {
 	r.current.Add(r.current, r.stepSize)
 	return common.Hash(r.current.Bytes32())
 }
+
+// incHash returns the next hash, in lexicographical order (a.k.a plus one)
+func incHash(h common.Hash) common.Hash {
+	a := uint256.NewInt().SetBytes32(h[:])
+	a.Add(a, uint256.NewInt().SetOne())
+	return common.Hash(a.Bytes32())
+}

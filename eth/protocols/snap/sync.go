@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"math/big"
 	"math/rand"
+	"sort"
 	"sync"
 	"time"
 
@@ -1816,6 +1817,8 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 							chunks = n + 1
 						}
 						log.Info("Storage estimation", "delivered", len(keys), "remaining", estimate, "chunks", chunks)
+					} else {
+						log.Info("Storage estimation", "delivered", len(keys), "chunks", chunks)
 					}
 					r := newHashRange(lastKey, chunks)
 					// Our first task is the one that was just filled by this response.
@@ -1853,25 +1856,23 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 			if res.subTask != nil {
 				// Ensure the response doesn't overflow into the subsequent task
 				last := res.subTask.Last.Big()
-				for k, hash := range res.hashes[i] {
-					// Mark the range complete if the last is already included.
-					// Keep iteration to delete the extra states if exists.
-					cmp := hash.Big().Cmp(last)
-					if cmp == 0 {
+				// Find the first overflowing key. While at it, mark res as complete
+				// if we find the range to include or pass the 'last'
+				index := sort.Search(len(res.hashes[i]), func(k int) bool {
+					cmp := res.hashes[i][k].Big().Cmp(last)
+					if cmp >= 0 {
 						res.cont = false
-						continue
 					}
-					if cmp > 0 {
-						// Chunk overflown, cut off excess
-						res.hashes[i] = res.hashes[i][:k]
-						res.slots[i] = res.slots[i][:k]
-						res.cont = false // Mark range completed
-						break
-					}
+					return cmp > 0
+				})
+				if index >= 0 {
+					// cut off excess
+					res.hashes[i] = res.hashes[i][:index]
+					res.slots[i] = res.slots[i][:index]
 				}
 				// Forward the relevant storage chunk (even if created just now)
 				if res.cont {
-					res.subTask.Next = common.BigToHash(new(big.Int).Add(res.hashes[i][len(res.hashes[i])-1].Big(), big.NewInt(1)))
+					res.subTask.Next = incHash(res.hashes[i][len(res.hashes[i])-1])
 				} else {
 					res.subTask.done = true
 				}
@@ -2067,7 +2068,7 @@ func (s *Syncer) forwardAccountTask(task *accountTask) {
 		if task.needCode[i] || task.needState[i] {
 			return
 		}
-		task.Next = common.BigToHash(new(big.Int).Add(hash.Big(), big.NewInt(1)))
+		task.Next = incHash(hash)
 	}
 	// All accounts marked as complete, track if the entire task is done
 	task.done = !res.cont
