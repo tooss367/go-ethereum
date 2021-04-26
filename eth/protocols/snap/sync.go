@@ -1916,8 +1916,15 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 	// Large contracts could have generated new trie nodes, flush them to disk
 	if res.subTask != nil {
 		if res.subTask.done {
-			if _, err := res.subTask.genTrie.Commit(); err != nil {
+			if root, err := res.subTask.genTrie.Commit(); err != nil {
 				log.Error("Failed to commit stack slots", "err", err)
+			} else if root == res.subTask.root {
+				// If the chunk's root is an overflown but full delivery, clear the heal request
+				for i, account := range res.mainTask.res.hashes {
+					if account == res.accounts[len(res.accounts)-1] {
+						res.mainTask.needHeal[i] = false
+					}
+				}
 			}
 		}
 		if data := res.subTask.genBatch.ValueSize(); data > ethdb.IdealBatchSize || res.subTask.done {

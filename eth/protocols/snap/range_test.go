@@ -17,7 +17,6 @@
 package snap
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -39,13 +38,13 @@ func TestHashRange(t *testing.T) {
 	next := common.Hash{}
 	last := r.End()
 	i := 0
-	fmt.Printf("Chunk %d, from %x to %x\n", i, next, last)
+	t.Logf("Chunk %d, from %x to %x\n", i, next, last)
 	chunks--
 	i++
 	for ; chunks > 0; chunks, i = chunks-1, i+1 {
 		r.Next()
 		next = r.Start()
 		last = r.End()
-		fmt.Printf("Chunk %d, from %x to %x\n", i, next, last)
+		t.Logf("Chunk %d, from %x to %x\n", i, next, last)
 	}
 }
