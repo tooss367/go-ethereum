@@ -17,41 +17,56 @@
 package snap
 
 import (
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/holiman/uint256"
 )
 
 // hashRange is a utility to handle ranges of hashes, Split up the
 // hash-space into sections, and 'walk' over the sections
 type hashRange struct {
-	current  *uint256.Int
-	stepSize *uint256.Int
+	current *uint256.Int
+	step    *uint256.Int
 }
 
 // newHashRange creates a new hashRange, initiated at the start position,
 // and with the step set to fill the desired 'num' chunks
 func newHashRange(start common.Hash, num uint64) *hashRange {
-	i := uint256.NewInt()
-	i.SetBytes32(start[:])
+	left := new(big.Int).Sub(new(big.Int).Add(math.MaxBig256, common.Big1), start.Big())
+	step := new(big.Int).Div(left, new(big.Int).SetUint64(num))
 
-	// split the remaining range in 'num' sections
-	max := uint256.NewInt().SetAllOne()
-	remaining := max.Sub(max, i)
-	remaining.Div(remaining, uint256.NewInt().SetUint64(num))
+	step256 := new(uint256.Int)
+	step256.SetFromBig(step)
 
-	return &hashRange{current: i, stepSize: remaining}
+	return &hashRange{
+		current: uint256.NewInt().SetBytes32(start[:]),
+		step:    step256,
+	}
 }
 
-// Next increments the current position by 1 and returns the hash
-func (r *hashRange) Next() common.Hash {
-	r.current.Add(r.current, uint256.NewInt().SetOne())
-	return common.Hash(r.current.Bytes32())
+// Next pushes the hash range to the next interval.
+func (r *hashRange) Next() bool {
+	next := new(uint256.Int)
+	if overflow := next.AddOverflow(r.current, r.step); overflow {
+		return false
+	}
+	r.current = next
+	return true
 }
 
-// Step increments the current position by 'step' and returns the hash
-func (r *hashRange) Step() common.Hash {
-	r.current.Add(r.current, r.stepSize)
-	return common.Hash(r.current.Bytes32())
+// Start returns the first hash in the current interval.
+func (r *hashRange) Start() common.Hash {
+	return r.current.Bytes32()
+}
+
+// End returns the last hash in the current interval.
+func (r *hashRange) End() common.Hash {
+	return new(uint256.Int).Sub(
+		new(uint256.Int).Add(r.current, r.step),
+		uint256.NewInt().SetOne(),
+	).Bytes32()
 }
 
 // incHash returns the next hash, in lexicographical order (a.k.a plus one)

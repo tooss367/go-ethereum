@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/state/snapshot"
@@ -1805,43 +1806,41 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 				if tasks, ok := res.mainTask.SubTasks[account]; !ok {
 					var (
 						keys    = res.hashes[i]
-						lastKey = common.Hash{}
 						chunks  = uint64(storageConcurrency)
+						lastKey common.Hash
 					)
 					if len(keys) > 0 {
 						lastKey = keys[len(keys)-1]
 					}
-					if estimate, err := estimateRemainingSlotCount(len(keys), lastKey); err == nil {
-						// If the number of slots remaining is low, decrease the parallelism.
-						// Somewhere on the order of 10-15K slots fits into a packet. A key/slot pair
-						// is maximum 64 bytes, so pessimistically: maxRequestSize/64 = 8K.
-						//
-						// We'd rather avoid chunking if 1 chunk == 1 packet,
-						// so we use a factor of 2 to avoid chunking if we expect the
-						// remaining data to be filled by ~2 packets.
-						//
+					// If the number of slots remaining is low, decrease the
+					// number of chunks. Somewhere on the order of 10-15K slots
+					// fit into a packet of 500KB. A key/slot pair is maximum 64
+					// bytes, so pessimistically maxRequestSize/64 = 8K.
+					//
+					// Chunk so that at least 2 packets are needed to fill a task.
+					if estimate, err := estimateRemainingSlots(len(keys), lastKey); err == nil {
 						if n := estimate / (2 * (maxRequestSize / 64)); n+1 < chunks {
 							chunks = n + 1
 						}
-						log.Info("Storage estimation", "delivered", len(keys), "remaining", estimate, "chunks", chunks)
+						log.Debug("Chunked large contract", "initiators", len(keys), "tail", lastKey, "remaining", estimate, "chunks", chunks)
 					} else {
-						log.Info("Storage estimation", "delivered", len(keys), "chunks", chunks)
+						log.Debug("Chunked large contract", "initiators", len(keys), "tail", lastKey, "chunks", chunks)
 					}
 					r := newHashRange(lastKey, chunks)
+
 					// Our first task is the one that was just filled by this response.
 					tasks = append(tasks, &storageTask{
 						Next:     common.Hash{},
-						Last:     r.Step(),
+						Last:     r.End(),
 						root:     acc.Root,
 						genBatch: batch,
 						genTrie:  trie.NewStackTrie(batch),
 					})
-					chunks--
-					for ; chunks > 0; chunks-- {
+					for r.Next() {
 						batch := s.db.NewBatch()
 						tasks = append(tasks, &storageTask{
-							Next:     r.Next(),
-							Last:     r.Step(),
+							Next:     r.Start(),
+							Last:     r.End(),
 							root:     acc.Root,
 							genBatch: batch,
 							genTrie:  trie.NewStackTrie(batch),
@@ -2738,19 +2737,18 @@ func (s *Syncer) reportHealProgress(force bool) {
 		"codes", bytecode, "nodes", trienode, "pending", s.healer.scheduler.Pending())
 }
 
-// estimateRemainingSlotCount tries to determine roughly how many slots are left in a contract storage,
-// based on the number of keys and the last hash. This method assumes that the hashes
-// are lexicographically ordered, and somewhat evenly distributed.
-func estimateRemainingSlotCount(n int, last common.Hash) (uint64, error) {
+// estimateRemainingSlots tries to determine roughly how many slots are left in
+// a contract storage, based on the number of keys and the last hash. This method
+// assumes that the hashes are lexicographically ordered and evenly distributed.
+func estimateRemainingSlots(hashes int, last common.Hash) (uint64, error) {
 	if last == (common.Hash{}) {
-		return 0, errors.New("last hash was empty")
+		return 0, errors.New("last hash empty")
 	}
-	space := common.HexToHash("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").Big()
-	space.Mul(space, big.NewInt(int64(n)))
+	space := new(big.Int).Mul(math.MaxBig256, big.NewInt(int64(hashes)))
 	space.Div(space, last.Big())
 	if !space.IsUint64() {
-		// probably due to too few slots for estimation
+		// Gigantic address space probably due to too few or malicious slots
 		return 0, errors.New("too few slots for estimation")
 	}
-	return space.Uint64() - uint64(n), nil
+	return space.Uint64() - uint64(hashes), nil
 }
