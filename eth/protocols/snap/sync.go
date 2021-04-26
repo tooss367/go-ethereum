@@ -1805,15 +1805,22 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 				if tasks, ok := res.mainTask.SubTasks[account]; !ok {
 					var (
 						keys    = res.hashes[i]
-						lastKey = keys[len(keys)-1]
+						lastKey = common.Hash{}
 						chunks  = uint64(storageConcurrency)
 					)
+					if len(keys) > 0 {
+						lastKey = keys[len(keys)-1]
+					}
 					if estimate, err := estimateRemainingSlotCount(len(keys), lastKey); err == nil {
 						// If the number of slots remaining is low, decrease the parallelism.
-						// Somewhere on the order of 10K slots fits into a packet. We'd rather not chunk if
-						// each chunk is going to be only one single packet, so we use a factor of 2 to
-						// avoid chunking if we expect the remaining data to be filled with ~2 packets.
-						if n := estimate / (2 * 10000); n+1 < chunks {
+						// Somewhere on the order of 10-15K slots fits into a packet. A key/slot pair
+						// is maximum 64 bytes, so pessimistically: maxRequestSize/64 = 8K.
+						//
+						// We'd rather avoid chunking if 1 chunk == 1 packet,
+						// so we use a factor of 2 to avoid chunking if we expect the
+						// remaining data to be filled by ~2 packets.
+						//
+						if n := estimate / (2 * (maxRequestSize / 64)); n+1 < chunks {
 							chunks = n + 1
 						}
 						log.Info("Storage estimation", "delivered", len(keys), "remaining", estimate, "chunks", chunks)
