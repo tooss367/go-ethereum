@@ -34,8 +34,14 @@ type hashRange struct {
 // newHashRange creates a new hashRange, initiated at the start position,
 // and with the step set to fill the desired 'num' chunks
 func newHashRange(start common.Hash, num uint64) *hashRange {
-	left := new(big.Int).Sub(new(big.Int).Add(math.MaxBig256, common.Big1), start.Big())
-	step := new(big.Int).Div(left, new(big.Int).SetUint64(num))
+	left := new(big.Int).Sub(
+		new(big.Int).Add(math.MaxBig256, common.Big1),
+		start.Big(),
+	)
+	step := new(big.Int).Div(
+		new(big.Int).Add(left, new(big.Int).SetUint64(num-1)),
+		new(big.Int).SetUint64(num),
+	)
 
 	step256 := new(uint256.Int)
 	step256.SetFromBig(step)
@@ -63,10 +69,12 @@ func (r *hashRange) Start() common.Hash {
 
 // End returns the last hash in the current interval.
 func (r *hashRange) End() common.Hash {
-	return new(uint256.Int).Sub(
-		new(uint256.Int).Add(r.current, r.step),
-		uint256.NewInt().SetOne(),
-	).Bytes32()
+	// If the end overflows (non divisible range), return a shorter interval
+	next := new(uint256.Int)
+	if overflow := next.AddOverflow(r.current, r.step); overflow {
+		return common.HexToHash("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+	}
+	return new(uint256.Int).Sub(next, uint256.NewInt().SetOne()).Bytes32()
 }
 
 // incHash returns the next hash, in lexicographical order (a.k.a plus one)

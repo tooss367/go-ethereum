@@ -1846,10 +1846,8 @@ func (s *Syncer) processStorageResponse(res *storageResponse) {
 							genTrie:  trie.NewStackTrie(batch),
 						})
 					}
-					// Make sure we don't overflow if the step is not a proper divisor
-					tasks[len(tasks)-1].Last = common.HexToHash("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
 					for _, task := range tasks {
-						log.Info("Created storage sync task", "account", account, "root", acc.Root, "from", task.Next, "last", task.Last)
+						log.Debug("Created storage sync task", "account", account, "root", acc.Root, "from", task.Next, "last", task.Last)
 					}
 					res.mainTask.SubTasks[account] = tasks
 
