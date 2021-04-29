@@ -332,21 +332,82 @@ func prepareStackTrie(key []byte, proof []interface{}) (*StackTrie, error) {
 	return st, nil
 }
 
+func postfixStackTrie(st *StackTrie, key []byte, proof []interface{}) (*StackTrie, error) {
+	// TODO fix this one up properly
+	path := keybytesToHex(key)
+	pathIndex := len(path) - 1
+	makeFNParent := func(fn fullN, child *StackTrie) *StackTrie {
+		newNode := &StackTrie{
+			nodeType:  branchNode,
+			key:       common.CopyBytes(path[:pathIndex]),
+			keyOffset: pathIndex,
+		}
+		// Add the hashed left-hand siblings
+		for k, v := range fn.siblings {
+			newNode.children[k] = &StackTrie{
+				val:      common.CopyBytes(v.([]byte)),
+				nodeType: hashedNode,
+			}
+		}
+		newNode.children[path[pathIndex]] = child
+		pathIndex--
+		return newNode
+	}
+	makeSNParent := func(sn shortN, child *StackTrie) *StackTrie {
+		pathIndex -= len(sn.ext)
+		elem := &StackTrie{
+			key:       common.CopyBytes(sn.ext),
+			keyOffset: pathIndex + 1,
+		}
+		if child != nil {
+			elem.nodeType = extNode
+			elem.children[0] = child
+			return elem
+		}
+		// If we're not adding a child node here, then this is the leaf
+		elem.nodeType = leafNode
+		elem.val = common.CopyBytes(sn.val)
+		// remove the terminator
+		elem.key = elem.key[:len(elem.key)-1]
+		return elem
+	}
+	// Go bottom up, so reverse the proof list
+	for i := len(proof) - 1; i >= 0; i-- {
+		v := proof[i]
+		switch vv := v.(type) {
+		case fullN:
+			fmt.Printf("Fullnode\n")
+			st = makeFNParent(vv, st)
+		case shortN:
+			fmt.Printf("Shortnode\n")
+			st = makeSNParent(vv, st)
+		}
+	}
+	return st, nil
+}
+
+
 func testStackTrieProof(t *testing.T, kvs entrySlice, refTrie *Trie, index int) {
 	// Prove elem
-	plist, err := refTrie.ProveWithPaths(kvs[index].k)
+	prefix, err := refTrie.ProveWithPathsLeftSide(kvs[index].k)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	st, err := prepareStackTrie(kvs[index].k, plist)
+	st, err := prepareStackTrie(kvs[index].k, prefix)
 	if err != nil {
 		t.Fatal(err)
 	}
 	//st.dumpTrie(0)
-	for _, kv := range kvs[index+1:] {
+	for _, kv := range kvs[index+1:index+2] {
 		st.TryUpdate(kv.k, common.CopyBytes(kv.v))
 	}
+	suffix, err := refTrie.ProveWithPathsRightSide(kvs[index+2].k)
+
+	st.dumpTrie(0)
+	st, err = postfixStackTrie(st, kvs[index+2].k, suffix)
+	st.dumpTrie(0)
+	// 0x307f372f659f8d9424f88904d4489f932ba77b73eade773235584d8348801253
 	t.Logf("st root: %#x", st.Hash())
 	if want, have := refTrie.Hash(), st.Hash(); have != want {
 		t.Fatalf("Proving element %d, have %#x, want %#x", index, have, want)
@@ -396,7 +457,7 @@ func benchmarkVerifyStackRangeProof(b *testing.B, size int) {
 
 	b.Run("stackbased", func(b *testing.B) {
 		key := common.CopyBytes(keys[0])
-		plist, err := trie.ProveWithPaths(key)
+		plist, err := trie.ProveWithPathsLeftSide(key)
 		if err != nil {
 			b.Fatal(err)
 		}
