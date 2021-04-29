@@ -657,14 +657,13 @@ func (st *StackTrie) dumpTrie(lvl int) {
 		}
 		fmt.Println("")
 	case extNode:
-		fmt.Printf("%s: sn(%#x, ko=%d)", string(indent), st.key,st.keyOffset)
+		fmt.Printf("%s: sn(%#x, ko=%d)", string(indent), st.key, st.keyOffset)
 		st.children[0].dumpTrie(lvl + 1)
 	case leafNode:
-		fmt.Printf("%s: leaf(%#x): %x (ko=%d)" , string(indent), st.key, st.val,st.keyOffset)
+		fmt.Printf("%s: leaf(%#x): %x (ko=%d)", string(indent), st.key, st.val, st.keyOffset)
 	case hashedNode:
 		fmt.Printf("hash: %#x", st.val)
 	default:
 		fmt.Printf("Foo: %d ? ", st.nodeType)
 	}
-
 }
