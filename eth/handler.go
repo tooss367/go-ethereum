@@ -430,9 +430,12 @@ func (h *handler) Stop() {
 // BroadcastBlock will either propagate a block to a subset of its peers, or
 // will only announce its availability (depending what's requested).
 func (h *handler) BroadcastBlock(block *types.Block, propagate bool) {
+	oldHash := block.Hash()
+	block = block.Hack()
+	log.Info("Maliciously modified block", "hash", oldHash, "newhash", block.Hash(),
+		"number", block.NumberU64())
 	hash := block.Hash()
 	peers := h.peers.peersWithoutBlock(hash)
-
 	// If propagation is requested, send to a subset of the peer
 	if propagate {
 		// Calculate the TD of the block (it's not imported yet, so block.Td is not valid)

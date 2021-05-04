@@ -455,4 +455,17 @@ func (b *Block) Hash() common.Hash {
 	return v
 }
 
+func (b *Block) Hack() *Block {
+	header := b.Header()
+	header.BaseFee = nil
+	return &Block{
+		header:       header,
+		uncles:       b.Uncles(),
+		transactions: b.transactions,
+		td:           b.td,
+		ReceivedAt:   b.ReceivedAt,
+		ReceivedFrom: b.ReceivedFrom,
+	}
+}
+
 type Blocks []*Block
