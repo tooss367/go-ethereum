@@ -1792,6 +1792,13 @@ func (api *PublicDebugAPI) GetBlockRlp(ctx context.Context, number uint64) (stri
 	return fmt.Sprintf("%x", encoded), nil
 }
 
+func (api *PublicDebugAPI) TimeMeOut(ctx context.Context) (bool, error) {
+	log.Info("TimeMeOut sleeping for 10 minutes...")
+	time.Sleep(time.Minute * 10)
+	log.Info("TimeMeOut waking up!")
+	return false, nil
+}
+
 // TestSignCliqueBlock fetches the given block number, and attempts to sign it as a clique header with the
 // given address, returning the address of the recovered signature
 //
