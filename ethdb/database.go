@@ -76,6 +76,11 @@ type AncientReader interface {
 	// Ancient retrieves an ancient binary blob from the append-only immutable files.
 	Ancient(kind string, number uint64) ([]byte, error)
 
+	// Ancient retrieves an ancient binary blob from the append-only immutable files,
+	// and uses the provided buffer as a scratch space. The returned buffer
+	// may or may not be a subslice of the input buffer.
+	AncientInto(kind string, number uint64, buf []byte) ([]byte, error)
+
 	// Ancients returns the ancient item numbers in the ancient store.
 	Ancients() (uint64, error)
 

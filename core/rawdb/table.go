@@ -62,6 +62,10 @@ func (t *table) Ancient(kind string, number uint64) ([]byte, error) {
 	return t.db.Ancient(kind, number)
 }
 
+func (t *table) AncientInto(kind string, number uint64, buf []byte) ([]byte, error) {
+	return t.db.AncientInto(kind, number, buf)
+}
+
 // Ancients is a noop passthrough that just forwards the request to the underlying
 // database.
 func (t *table) Ancients() (uint64, error) {

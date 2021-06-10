@@ -592,10 +592,28 @@ func (t *freezerTable) Retrieve(item uint64) ([]byte, error) {
 	return snappy.Decode(nil, blob)
 }
 
+func (t *freezerTable) RetrieveInto(item uint64, buf []byte) ([]byte, error) {
+	blob, err := t.retrieveInto(item, buf)
+	if err != nil {
+		return nil, err
+	}
+	if t.noCompression {
+		return blob, nil
+	}
+	// Decompression required
+	src := blob[:len(blob)]
+	dst := blob[len(blob):]
+	return snappy.Decode(dst, src)
+}
+
 // retrieve looks up the data offset of an item with the given number and retrieves
 // the raw binary blob from the data file. OBS! This method does not decode
 // compressed data.
 func (t *freezerTable) retrieve(item uint64) ([]byte, error) {
+	return t.retrieveInto(item, nil)
+}
+
+func (t *freezerTable) retrieveInto(item uint64, buf []byte) ([]byte, error) {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 	// Ensure the table and the item is accessible
@@ -617,13 +635,18 @@ func (t *freezerTable) retrieve(item uint64) ([]byte, error) {
 	if !exist {
 		return nil, fmt.Errorf("missing data file %d", filenum)
 	}
+	// Read the data into the buf
+	size := int(endOffset - startOffset)
+	if size > cap(buf) {
+		buf = make([]byte, size)
+	}
+	buf = buf[:size]
 	// Retrieve the data itself, decompress and return
-	blob := make([]byte, endOffset-startOffset)
-	if _, err := dataFile.ReadAt(blob, int64(startOffset)); err != nil {
+	if _, err := dataFile.ReadAt(buf, int64(startOffset)); err != nil {
 		return nil, err
 	}
-	t.readMeter.Mark(int64(len(blob) + 2*indexEntrySize))
-	return blob, nil
+	t.readMeter.Mark(int64(len(buf) + 2*indexEntrySize))
+	return buf, nil
 }
 
 // has returns an indicator whether the specified number data

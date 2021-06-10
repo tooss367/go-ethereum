@@ -89,9 +89,9 @@ type blockTxHashes struct {
 // channel will be closed.
 func iterateTransactions(db ethdb.Database, from uint64, to uint64, reverse bool, interrupt chan struct{}) chan *blockTxHashes {
 	// One thread sequentially reads data from db
-	type numberRlp struct {
+	type numberTxs struct {
 		number uint64
-		rlp    rlp.RawValue
+		txs    types.Transactions
 	}
 	if to == from {
 		return nil
@@ -101,8 +101,9 @@ func iterateTransactions(db ethdb.Database, from uint64, to uint64, reverse bool
 		threads = uint64(cpus)
 	}
 	var (
-		rlpCh    = make(chan *numberRlp, threads*2)     // we send raw rlp over this channel
+		bodyCh   = make(chan *numberTxs, threads*2)     // we send raw rlp over this channel
 		hashesCh = make(chan *blockTxHashes, threads*2) // send hashes over hashesCh
+		buffer   = make([]byte, 1*1024*1024*1024)       // 1 Mb
 	)
 	// lookup runs in one instance
 	lookup := func() {
@@ -110,12 +111,17 @@ func iterateTransactions(db ethdb.Database, from uint64, to uint64, reverse bool
 		if reverse {
 			n, end = to-1, from-1
 		}
-		defer close(rlpCh)
+		defer close(bodyCh)
 		for n != end {
-			data := ReadCanonicalBodyRLP(db, n)
-			// Feed the block to the aggregator, or abort on interrupt
+			var body types.Body
+			data := ReadAncientBodyRLPInto(db, n, buffer)
+			if err := rlp.DecodeBytes(data, &body); err != nil {
+				log.Warn("Failed to decode block body", "block", n, "error", err)
+				return
+			}
+			// Feed the transactions to the aggregator, or abort on interrupt
 			select {
-			case rlpCh <- &numberRlp{n, data}:
+			case bodyCh <- &numberTxs{txs: body.Transactions, number: n}:
 			case <-interrupt:
 				return
 			}
@@ -135,19 +141,14 @@ func iterateTransactions(db ethdb.Database, from uint64, to uint64, reverse bool
 				close(hashesCh)
 			}
 		}()
-		for data := range rlpCh {
-			var body types.Body
-			if err := rlp.DecodeBytes(data.rlp, &body); err != nil {
-				log.Warn("Failed to decode block body", "block", data.number, "error", err)
-				return
-			}
+		for item := range bodyCh {
 			var hashes []common.Hash
-			for _, tx := range body.Transactions {
+			for _, tx := range item.txs {
 				hashes = append(hashes, tx.Hash())
 			}
 			result := &blockTxHashes{
 				hashes: hashes,
-				number: data.number,
+				number: item.number,
 			}
 			// Feed the block to the aggregator, or abort on interrupt
 			select {

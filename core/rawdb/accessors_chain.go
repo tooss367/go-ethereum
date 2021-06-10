@@ -387,6 +387,23 @@ func ReadBodyRLP(db ethdb.Reader, hash common.Hash, number uint64) rlp.RawValue 
 	return nil // Can't find the data anywhere.
 }
 
+func ReadAncientBodyRLPInto(db ethdb.Reader, number uint64, buf []byte) rlp.RawValue {
+	// If it's an ancient one, we don't need the canonical hash
+	data, _ := db.AncientInto(freezerBodiesTable, number, buf)
+	if len(data) == 0 {
+		// Need to get the hash
+		data, _ = db.Get(blockBodyKey(number, ReadCanonicalHash(db, number)))
+		// In the background freezer is moving data from leveldb to flatten files.
+		// So during the first check for ancient db, the data is not yet in there,
+		// but when we reach into leveldb, the data was already moved. That would
+		// result in a not found error.
+		if len(data) == 0 {
+			data, _ = db.AncientInto(freezerBodiesTable, number, buf)
+		}
+	}
+	return data
+}
+
 // ReadCanonicalBodyRLP retrieves the block body (transactions and uncles) for the canonical
 // block at number, in RLP encoding.
 func ReadCanonicalBodyRLP(db ethdb.Reader, number uint64) rlp.RawValue {

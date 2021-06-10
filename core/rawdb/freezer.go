@@ -180,6 +180,14 @@ func (f *freezer) Ancient(kind string, number uint64) ([]byte, error) {
 	return nil, errUnknownTable
 }
 
+// AncientInto retrieves an ancient binary blob from the append-only immutable files.
+func (f *freezer) AncientInto(kind string, number uint64, buf []byte) ([]byte, error) {
+	if table := f.tables[kind]; table != nil {
+		return table.RetrieveInto(number, buf)
+	}
+	return nil, errUnknownTable
+}
+
 // Ancients returns the length of the frozen items.
 func (f *freezer) Ancients() (uint64, error) {
 	return atomic.LoadUint64(&f.frozen), nil
