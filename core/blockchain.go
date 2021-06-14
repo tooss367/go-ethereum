@@ -1159,6 +1159,15 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 			return 0, fmt.Errorf("containing header #%d [%x..] unknown", first.Number(), first.Hash().Bytes()[:4])
 		}
 
+		var wg sync.WaitGroup
+		wg.Add(1)
+		var leveldbHashes []*rawdb.NumberHash
+		last := blockChain[len(blockChain)-1]
+		go func() {
+			leveldbHashes = rawdb.ReadAllHashesInRange(bc.db, first.NumberU64(), last.NumberU64())
+			wg.Done()
+		}()
+
 		// Ensure genesis is in ancients.
 		if first.NumberU64() == 1 {
 			if frozen, _ := bc.db.Ancients(); frozen == 0 {
@@ -1224,7 +1233,6 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 
 		// Delete block data from the main database.
 		batch.Reset()
-		last := blockChain[len(blockChain)-1]
 		canonHashes := make(map[common.Hash]struct{})
 		for _, block := range blockChain {
 			canonHashes[block.Hash()] = struct{}{}
@@ -1235,7 +1243,8 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 			rawdb.DeleteBlockWithoutNumber(batch, block.Hash(), block.NumberU64())
 		}
 		// Delete side chain hash-to-number mappings.
-		for _, nh := range rawdb.ReadAllHashesInRange(bc.db, first.NumberU64(), last.NumberU64()) {
+		wg.Wait()
+		for _, nh := range leveldbHashes {
 			if _, canon := canonHashes[nh.Hash]; !canon {
 				rawdb.DeleteHeader(batch, nh.Hash, nh.Number)
 			}
