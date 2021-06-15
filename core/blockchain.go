@@ -1224,7 +1224,7 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 
 		// Delete block data from the main database.
 		batch.Reset()
-		last := blockChain[len(blockChain)-1]
+		//last := blockChain[len(blockChain)-1]
 		canonHashes := make(map[common.Hash]struct{})
 		for _, block := range blockChain {
 			canonHashes[block.Hash()] = struct{}{}
@@ -1233,12 +1233,6 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 			}
 			rawdb.DeleteCanonicalHash(batch, block.NumberU64())
 			rawdb.DeleteBlockWithoutNumber(batch, block.Hash(), block.NumberU64())
-		}
-		// Delete side chain hash-to-number mappings.
-		for _, nh := range rawdb.ReadAllHashesInRange(bc.db, first.NumberU64(), last.NumberU64()) {
-			if _, canon := canonHashes[nh.Hash]; !canon {
-				rawdb.DeleteHeader(batch, nh.Hash, nh.Number)
-			}
 		}
 		if err := batch.Write(); err != nil {
 			return 0, err
@@ -1322,6 +1316,7 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 				rawdb.WriteTxIndexTail(bc.db, ancientLimit-bc.txLookupLimit)
 			}
 		}
+		bc.DeleteSidechains(1, ancientLimit)
 	}
 	if len(liveBlocks) > 0 {
 		if n, err := writeLive(liveBlocks, liveReceipts); err != nil {
@@ -1344,6 +1339,25 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 	log.Info("Imported new block receipts", context...)
 
 	return 0, nil
+}
+
+func (bc *BlockChain) DeleteSidechains(first, last uint64) error {
+	batch := bc.db.NewBatch()
+	count := 0
+	// Delete side chain hash-to-number mappings.
+	for _, nh := range rawdb.ReadAllHashesInRange(bc.db, first, last) {
+		rawdb.DeleteHeader(batch, nh.Hash, nh.Number)
+		count++
+		if batch.ValueSize() >= ethdb.IdealBatchSize {
+			if err := batch.Write(); err != nil {
+				return err
+			}
+			batch.Reset()
+		}
+	}
+	batch.Write()
+	log.Info("Deleted sidechain headers", "count", count)
+	return nil
 }
 
 // SetTxLookupLimit is responsible for updating the txlookup limit to the
