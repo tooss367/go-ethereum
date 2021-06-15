@@ -352,6 +352,14 @@ func (b *Block) WithSeal(header *Header) *Block {
 	}
 }
 
+// NewBlockWithHeaderAndBody creates a block with the given header data. The
+// header data is copied, changes to header and to the field values
+// will not affect the block.
+func NewBlockWithHeaderAndBody(header *Header, transactions []*Transaction, uncles []*Header) *Block {
+	b := &Block{header: header} // The header is copied in WithBody
+	return b.WithBody(transactions, uncles)
+}
+
 // WithBody returns a new block with the given transaction and uncle contents.
 func (b *Block) WithBody(transactions []*Transaction, uncles []*Header) *Block {
 	block := &Block{

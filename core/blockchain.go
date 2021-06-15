@@ -1098,10 +1098,7 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 	bc.wg.Add(1)
 	defer bc.wg.Done()
 
-	var (
-		ancientBlocks, liveBlocks     types.Blocks
-		ancientReceipts, liveReceipts []types.Receipts
-	)
+	var ancientBlocksIndex int
 	// Do a sanity check that the provided chain is actually ordered and linked
 	for i := 0; i < len(blockChain); i++ {
 		if i != 0 {
@@ -1113,16 +1110,17 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 			}
 		}
 		if blockChain[i].NumberU64() <= ancientLimit {
-			ancientBlocks, ancientReceipts = append(ancientBlocks, blockChain[i]), append(ancientReceipts, receiptChain[i])
-		} else {
-			liveBlocks, liveReceipts = append(liveBlocks, blockChain[i]), append(liveReceipts, receiptChain[i])
+			ancientBlocksIndex++
 		}
 	}
-
 	var (
-		stats = struct{ processed, ignored int32 }{}
-		start = time.Now()
-		size  = int64(0)
+		ancientBlocks   = blockChain[:ancientBlocksIndex]
+		ancientReceipts = receiptChain[:ancientBlocksIndex]
+		liveBlocks      = blockChain[ancientBlocksIndex:]
+		liveReceipts    = receiptChain[ancientBlocksIndex:]
+		stats           = struct{ processed, ignored int32 }{}
+		start           = time.Now()
+		size            = int64(0)
 	)
 
 	// updateHead updates the head fast sync block if the inserted blocks are better
