@@ -1193,6 +1193,7 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 		//	}
 		//	stats.processed++
 		//}
+		stats.processed = int32(len(blockChain))
 
 		//// Flush all tx-lookup index data.
 		//size += int64(batch.ValueSize())
