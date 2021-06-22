@@ -17,6 +17,8 @@
 package core
 
 import (
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"math/big"
 	"sort"
 	"sync"
@@ -104,9 +106,10 @@ func (t headByTd) Less(i, j int) bool { return t[i].td.Cmp(t[j].td) < 0 }
 func (t headByTd) Swap(i, j int)      { t[i], t[j] = t[j], t[i] }
 
 type headerDB struct {
-	heads []*hdrInfo
-	all   map[common.Hash]*types.Header
-	mu    sync.RWMutex
+	heads     []*hdrInfo
+	all       map[common.Hash]*types.Header
+	threshold uint64 // Lowest number kept in headerdb.
+	mu        sync.RWMutex
 }
 
 func NewHeaderDB(genesis *types.Header) *headerDB {
@@ -247,9 +250,29 @@ func (h *headerDB) GetTdByHash(hash common.Hash) *big.Int {
 
 // GetHeader retrieves a block header from the db by hash and number.
 func (h *headerDB) GetHeader(hash common.Hash, number uint64) *types.Header {
+	return h.GetHeaderByHash(hash)
+}
+
+func (h *headerDB) GetHeaderByNumber(number uint64, chainDb ethdb.Reader) *types.Header{
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	// Do we even have the header?
+	if number >= h.threshold{
+		info, _ := h.heads[0].getHeader(number)
+		if info == nil{
+			return nil
+		}
+		return h.all[info.hash]
+	}
+	hash := rawdb.ReadCanonicalHash(chainDb, number)
+	if hash == (common.Hash{}) {
+		return nil
+	}
+	return rawdb.ReadHeader(chainDb, hash, number)
+}
+
+func (h *headerDB) GetHeaderByHash(hash common.Hash) *types.Header {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
 	return h.all[hash]
 }
 
@@ -275,6 +298,7 @@ func (h *headerDB) Trim(threshold uint64) {
 			return true // continue iterating
 		})
 	}
+	h.threshold = threshold
 }
 
 // Size returns the approximate size in bytes of memory held
@@ -285,7 +309,7 @@ func (h *headerDB) Size() int {
 	size := numHeaders * (540 + 8 + 32) // header size + pointer size + key size
 	for _, tip := range h.heads {
 		tip.forEach(func(info *hdrInfo) bool {
-			size += 64 // 56 + ~8bytes for td bigint
+			size += 64  // 56 + ~8bytes for td bigint
 			return true // continue iterating
 		})
 	}
