@@ -275,6 +275,9 @@ func WriteFastTxLookupLimit(db ethdb.KeyValueWriter, number uint64) {
 func ReadHeadersRLP(db ethdb.Reader, number uint64, count uint64) []rlp.RawValue {
 	var headers []rlp.RawValue
 	i := number
+	if count > number {
+		count = number
+	}
 	limit, _ := db.Ancients()
 	// First read live blocks
 	if i > limit {
@@ -282,17 +285,23 @@ func ReadHeadersRLP(db ethdb.Reader, number uint64, count uint64) []rlp.RawValue
 		hash := ReadCanonicalHash(db, number)
 		var hdr types.Header
 		for ; i > number-count && i > limit; i-- {
-			data, _ := db.Get(headerKey(i, hash))
-			headers = append(headers, data)
-			// Update the hash for the parent
-			rlp.DecodeBytes(data, &hdr)
-			hash = hdr.ParentHash
+			if data, _ := db.Get(headerKey(i, hash)); len(data) > 0 {
+				headers = append(headers, data)
+				// Get the parent hash for next query
+				rlp.DecodeBytes(data, &hdr)
+				hash = hdr.ParentHash
+			} else {
+				break // Maybe got moved to ancients
+			}
 		}
 	}
 	// Then read ancients
 	for ; i > number-count; i-- {
-		data, _ := db.Ancient(freezerHeaderTable, i)
-		headers = append(headers, data)
+		if data, err := db.Ancient(freezerHeaderTable, i); err != nil {
+			headers = append(headers, data)
+		} else {
+			break
+		}
 	}
 	return headers
 }
