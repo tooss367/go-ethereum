@@ -313,3 +313,21 @@ func (it *iterator) Value() []byte {
 func (it *iterator) Release() {
 	it.keys, it.values = nil, nil
 }
+
+type CountingDatabase struct {
+	*Database
+	Reads uint64
+}
+
+func NewCounting() *CountingDatabase {
+	return &CountingDatabase{New(), 0}
+}
+
+func (db *CountingDatabase) Reset() {
+	db.Reads = 0
+}
+
+func (db *CountingDatabase) Get(key []byte) ([]byte, error) {
+	db.Reads++
+	return db.Database.Get(key)
+}

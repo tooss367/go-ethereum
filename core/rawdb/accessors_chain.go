@@ -269,6 +269,34 @@ func WriteFastTxLookupLimit(db ethdb.KeyValueWriter, number uint64) {
 	}
 }
 
+// ReadHeadersRLP returns the rlp-encoded headers, starting at 'number', and going
+// backwards towards genesis. This method assumes that the caller already has
+// placed a cap on count, to prevent DoS issues.
+func ReadHeadersRLP(db ethdb.Reader, number uint64, count uint64) []rlp.RawValue {
+	var headers []rlp.RawValue
+	i := number
+	limit, _ := db.Ancients()
+	// First read live blocks
+	if i > limit {
+		// If we need to read live blocks, we need to figure out the hash first
+		hash := ReadCanonicalHash(db, number)
+		var hdr types.Header
+		for ; i > number-count && i > limit; i-- {
+			data, _ := db.Get(headerKey(i, hash))
+			headers = append(headers, data)
+			// Update the hash for the parent
+			rlp.DecodeBytes(data, &hdr)
+			hash = hdr.ParentHash
+		}
+	}
+	// Then read ancients
+	for ; i > number-count; i-- {
+		data, _ := db.Ancient(freezerHeaderTable, i)
+		headers = append(headers, data)
+	}
+	return headers
+}
+
 // ReadHeaderRLP retrieves a block header in its raw RLP database encoding.
 func ReadHeaderRLP(db ethdb.Reader, hash common.Hash, number uint64) rlp.RawValue {
 	// First try to look up the data in ancient database. Extra hash

@@ -20,6 +20,7 @@ import (
 	crand "crypto/rand"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/rlp"
 	"math"
 	"math/big"
 	mrand "math/rand"
@@ -489,6 +490,52 @@ func (hc *HeaderChain) GetHeaderByNumber(number uint64) *types.Header {
 		return nil
 	}
 	return hc.GetHeader(hash, number)
+}
+
+type HeaderIterator interface {
+	Next() bool
+	Value() *types.Header
+}
+
+type headerIterator struct {
+	val     *types.Header
+	hc      *HeaderChain
+	started bool
+}
+
+func (it *headerIterator) Value() *types.Header {
+	return it.val
+}
+
+// Next advances the iterator (going from header N to N-1).
+func (it *headerIterator) Next() bool {
+	if it.val == nil {
+		return false
+	}
+	if !it.started {
+		it.started = true
+		return true
+	}
+	it.val = it.hc.GetHeader(it.val.ParentHash, it.val.Number.Uint64()-1)
+	return true
+}
+
+// GetHeadersFrom returns an iterator which gives back headers in sequence
+// starting from the given number, iterating towards genesis.
+// In case a reorg happens while the iterator
+// is executing, the iterator will deliver the contiguous sequence, and not
+// 'swap' from the first to the second canon chain during iteration.
+func (hc *HeaderChain) GetHeadersFrom(number uint64) HeaderIterator {
+	hash := rawdb.ReadCanonicalHash(hc.chainDb, number)
+	header := hc.GetHeader(hash, number)
+	return &headerIterator{
+		val: header,
+		hc:  hc,
+	}
+}
+
+func (hc *HeaderChain) GetHeadersFrom2(number, count uint64) []rlp.RawValue {
+	return rawdb.ReadHeadersRLP(hc.chainDb, number, count)
 }
 
 func (hc *HeaderChain) GetCanonicalHash(number uint64) common.Hash {

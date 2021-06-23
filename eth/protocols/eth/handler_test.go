@@ -17,6 +17,7 @@
 package eth
 
 import (
+	"github.com/ethereum/go-ethereum/ethdb/memorydb"
 	"math"
 	"math/big"
 	"math/rand"
@@ -49,6 +50,7 @@ var (
 // purpose is to allow testing the request/reply workflows and wire serialization
 // in the `eth` protocol without actually doing any data processing.
 type testBackend struct {
+	diskdb *memorydb.CountingDatabase
 	db     ethdb.Database
 	chain  *core.BlockChain
 	txpool *core.TxPool
@@ -63,7 +65,8 @@ func newTestBackend(blocks int) *testBackend {
 // wraps it into a mock backend.
 func newTestBackendWithGenerator(blocks int, generator func(int, *core.BlockGen)) *testBackend {
 	// Create a database pre-initialize with a genesis block
-	db := rawdb.NewMemoryDatabase()
+	memdb := memorydb.NewCounting()
+	db := rawdb.NewDatabase(memdb)
 	(&core.Genesis{
 		Config: params.TestChainConfig,
 		Alloc:  core.GenesisAlloc{testAddr: {Balance: big.NewInt(100_000_000_000_000_000)}},
@@ -79,6 +82,7 @@ func newTestBackendWithGenerator(blocks int, generator func(int, *core.BlockGen)
 	txconfig.Journal = "" // Don't litter the disk with test journals
 
 	return &testBackend{
+		diskdb: memdb,
 		db:     db,
 		chain:  chain,
 		txpool: core.NewTxPool(txconfig, params.TestChainConfig, chain),
@@ -588,5 +592,17 @@ func testGetBlockReceipts(t *testing.T, protocol uint) {
 		}); err != nil {
 			t.Errorf("receipts mismatch: %v", err)
 		}
+	}
+}
+
+func TestGetBlockHeaders(t *testing.T) {
+
+	backend := newTestBackend(maxBodiesServe + 15)
+	defer backend.close()
+	backend.diskdb.Reset()
+	// A packed requesting 100 headers, from the current header.
+	answerGetBlockHeadersQuery(backend, &GetBlockHeadersPacket{Origin: HashOrNumber{Number: backend.chain.CurrentBlock().NumberU64() - 1}, Amount: 100, Reverse: true}, nil)
+	if have, want := backend.diskdb.Reads, uint64(100); have > want {
+		t.Errorf("too many reads, have %d, want less than %d", have, want)
 	}
 }
