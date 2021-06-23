@@ -1762,7 +1762,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 	case err != nil:
 		bc.futureBlocks.Remove(block.Hash())
 		stats.ignored += len(it.chain)
-		bc.reportBlock(block, nil, err)
+		bc.reportBlock(block, nil, err, nil, nil)
 		return it.index, err
 	}
 	// No validation errors for the first block (or chain prefix skipped)
@@ -1785,7 +1785,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		}
 		// If the header is a banned one, straight out abort
 		if BadHashes[block.Hash()] {
-			bc.reportBlock(block, nil, ErrBlacklistedHash)
+			bc.reportBlock(block, nil, ErrBlacklistedHash, nil, nil)
 			return it.index, ErrBlacklistedHash
 		}
 		// If the block is known (in the middle of the chain), it's a special case for
@@ -1862,7 +1862,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		substart := time.Now()
 		receipts, logs, usedGas, err := bc.processor.Process(block, statedb, bc.vmConfig)
 		if err != nil {
-			bc.reportBlock(block, receipts, err)
+			bc.reportBlock(block, receipts, err, statedb.Error(), statedb.Database().TrieDB().Error())
 			atomic.StoreUint32(&followupInterrupt, 1)
 			return it.index, err
 		}
@@ -1882,7 +1882,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		// Validate the state using the default validator
 		substart = time.Now()
 		if err := bc.validator.ValidateState(block, statedb, receipts, usedGas); err != nil {
-			bc.reportBlock(block, receipts, err)
+			bc.reportBlock(block, receipts, err, statedb.Error(), statedb.Database().TrieDB().Error())
 			atomic.StoreUint32(&followupInterrupt, 1)
 			return it.index, err
 		}
@@ -2350,8 +2350,11 @@ func (bc *BlockChain) maintainTxIndex(ancients uint64) {
 }
 
 // reportBlock logs a bad block error.
-func (bc *BlockChain) reportBlock(block *types.Block, receipts types.Receipts, err error) {
-	rawdb.WriteBadBlock(bc.db, block)
+func (bc *BlockChain) reportBlock(block *types.Block, receipts types.Receipts, err, stateErr, trieDbErr error) {
+	if trieDbErr != nil {
+		// If we have an underlying db issue, we should avoid writing to the database
+		rawdb.WriteBadBlock(bc.db, block)
+	}
 
 	var receiptString string
 	for i, receipt := range receipts {
@@ -2368,8 +2371,10 @@ Hash: 0x%x
 %v
 
 Error: %v
+State error: %v
+TrieDB error: %v
 ##############################
-`, bc.chainConfig, block.Number(), block.Hash(), receiptString, err))
+`, bc.chainConfig, block.Number(), block.Hash(), receiptString, err, stateErr, trieDbErr))
 }
 
 // InsertHeaderChain attempts to insert the given header chain in to the local

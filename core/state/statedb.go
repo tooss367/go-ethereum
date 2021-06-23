@@ -178,6 +178,8 @@ func (s *StateDB) setError(err error) {
 	}
 }
 
+// Error returns non-nil if an error occurred when reading or writing to the
+// underlying database.
 func (s *StateDB) Error() error {
 	return s.dbErr
 }

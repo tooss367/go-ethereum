@@ -88,7 +88,8 @@ type Database struct {
 	childrenSize  common.StorageSize // Storage size of the external children tracking
 	preimagesSize common.StorageSize // Storage size of the preimages cache
 
-	lock sync.RWMutex
+	diskDbErr error // database access problems
+	lock      sync.RWMutex
 }
 
 // rawNode is a simple binary blob used to differentiate between collapsed trie
@@ -392,6 +393,9 @@ func (db *Database) node(hash common.Hash) node {
 
 	// Content unavailable in memory, attempt to retrieve from disk
 	enc, err := db.diskdb.Get(hash[:])
+	if err != nil && db.diskDbErr == nil {
+		db.diskDbErr = err
+	}
 	if err != nil || enc == nil {
 		return nil
 	}
@@ -886,4 +890,8 @@ func (db *Database) SaveCachePeriodically(dir string, interval time.Duration, st
 			return
 		}
 	}
+}
+
+func (db *Database) Error() error {
+	return db.diskDbErr
 }

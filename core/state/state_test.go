@@ -251,3 +251,68 @@ func compareStateObjects(so0, so1 *stateObject, t *testing.T) {
 		}
 	}
 }
+
+// TestDbErrors tests that when an underlying database error occur, which presumably will lead to an
+// erroneous state-root, we also detect the underlying errorr
+func TestDbErrors(t *testing.T) {
+	memdb := rawdb.NewMemoryDatabase()
+	db := NewDatabase(memdb)
+	stateobjaddr0 := common.BytesToAddress([]byte("so0"))
+	stateobjaddr1 := common.BytesToAddress([]byte("so1"))
+	// Populate some state
+	var root common.Hash
+	{
+		state, err := New(common.Hash{}, db, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var storageaddr common.Hash
+		data0 := common.BytesToHash([]byte{17})
+		data1 := common.BytesToHash([]byte{18})
+		state.SetState(stateobjaddr0, storageaddr, data0)
+		state.SetState(stateobjaddr1, storageaddr, data1)
+		so0 := state.getStateObject(stateobjaddr0)
+		so0.SetBalance(big.NewInt(42))
+		so0.SetNonce(43)
+		so0.SetCode(crypto.Keccak256Hash([]byte{'c', 'a', 'f', 'e'}), []byte{'c', 'a', 'f', 'e'})
+		so0.suicided = false
+		so0.deleted = false
+		state.setStateObject(so0)
+		// Commit
+		root, err = state.Commit(false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		db.TrieDB().Commit(root, false, nil)
+		t.Logf("root: %x\n", root)
+	}
+
+	// Open a new state
+	{
+		state, err := New(root, db, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// ... and close the db
+		memdb.Close()
+		//
+		so1 := state.getStateObject(stateobjaddr0)
+		if state.Error() == nil {
+			t.Fatalf("expected db error on statedb")
+		}
+		t.Logf("db error: %v", state.Error())
+		t.Logf("trie db error: %v", state.Database().TrieDB().Error())
+		if so1 != nil {
+			t.Fatal("test error: should be nil")
+		}
+
+		// The Commit operation should bubble up the error
+		if _, err := state.Commit(false); err == nil {
+			t.Fatal("Expected error")
+		} else {
+			t.Logf("Commit error: %v", err)
+		}
+
+	}
+
+}

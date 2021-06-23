@@ -327,7 +327,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		UsedGas:    st.gasUsed(),
 		Err:        vmerr,
 		ReturnData: ret,
-	}, nil
+	}, st.state.Error()
 }
 
 func (st *StateTransition) refundGas(refundQuotient uint64) {
