@@ -155,7 +155,7 @@ func answerContiguousBlockHeaderQuery(backend Backend, query *GetBlockHeadersPac
 	if query.Origin.Hash == (common.Hash{}) {
 		// Number mode, just return the canon chain segment. The backend
 		// delivers in [N, N-1, N-2..] descending order, so we need to
-		// accomodate for that.
+		// accommodate for that.
 		from := query.Origin.Number
 		if !query.Reverse {
 			from = from + count - 1

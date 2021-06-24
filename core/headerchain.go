@@ -528,6 +528,16 @@ func (hc *HeaderChain) GetHeaderByNumber(number uint64) *types.Header {
 // GetHeadersFrom returns a contiguous segment of headers, in rlp-form, going
 // backwards from the given number.
 func (hc *HeaderChain) GetHeadersFrom(number, count uint64) []rlp.RawValue {
+	// If the request is for future headers, we still return the portion of
+	// headers that we are able to serve
+	if current := hc.CurrentHeader().Number.Uint64(); current < number {
+		if count >= number-current {
+			count -= number - current
+			number = current
+		} else {
+			return nil
+		}
+	}
 	return rawdb.ReadHeadersRLP(hc.chainDb, number, count)
 }
 

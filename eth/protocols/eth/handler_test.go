@@ -179,8 +179,13 @@ func testGetBlockHeaders(t *testing.T, protocol uint) {
 		{
 			&GetBlockHeadersPacket{Origin: HashOrNumber{Number: 0}, Amount: 1},
 			[]common.Hash{backend.chain.GetBlockByNumber(0).Hash()},
-		}, {
+		},
+		{
 			&GetBlockHeadersPacket{Origin: HashOrNumber{Number: backend.chain.CurrentBlock().NumberU64()}, Amount: 1},
+			[]common.Hash{backend.chain.CurrentBlock().Hash()},
+		},
+		{ // If the peer requests a bit into the future, we deliver what we have
+			&GetBlockHeadersPacket{Origin: HashOrNumber{Number: backend.chain.CurrentBlock().NumberU64()}, Amount: 10},
 			[]common.Hash{backend.chain.CurrentBlock().Hash()},
 		},
 		// Ensure protocol limits are honored
@@ -259,7 +264,7 @@ func testGetBlockHeaders(t *testing.T, protocol uint) {
 		if protocol <= ETH65 {
 			p2p.Send(peer.app, GetBlockHeadersMsg, tt.query)
 			if err := p2p.ExpectMsg(peer.app, BlockHeadersMsg, headers); err != nil {
-				t.Errorf("test %d: headers mismatch: %v", i, err)
+				t.Fatalf("test %d: headers mismatch: %v", i, err)
 			}
 		} else {
 			p2p.Send(peer.app, GetBlockHeadersMsg, GetBlockHeadersPacket66{
@@ -270,7 +275,7 @@ func testGetBlockHeaders(t *testing.T, protocol uint) {
 				RequestId:          123,
 				BlockHeadersPacket: headers,
 			}); err != nil {
-				t.Errorf("test %d: headers mismatch: %v", i, err)
+				t.Fatalf("test %d: headers mismatch: %v", i, err)
 			}
 		}
 		// If the test used number origins, repeat with hashes as the too
@@ -281,7 +286,7 @@ func testGetBlockHeaders(t *testing.T, protocol uint) {
 				if protocol <= ETH65 {
 					p2p.Send(peer.app, GetBlockHeadersMsg, tt.query)
 					if err := p2p.ExpectMsg(peer.app, BlockHeadersMsg, headers); err != nil {
-						t.Errorf("test %d by hash:  headers mismatch: %v", i, err)
+						t.Fatalf("test %d by hash:  headers mismatch: %v", i, err)
 					}
 				} else {
 					p2p.Send(peer.app, GetBlockHeadersMsg, GetBlockHeadersPacket66{
@@ -292,7 +297,7 @@ func testGetBlockHeaders(t *testing.T, protocol uint) {
 						RequestId:          456,
 						BlockHeadersPacket: headers,
 					}); err != nil {
-						t.Errorf("test %d by hash: headers mismatch: %v", i, err)
+						t.Fatalf("test %d by hash: headers mismatch: %v", i, err)
 					}
 				}
 			}
