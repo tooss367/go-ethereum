@@ -33,6 +33,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/rlp"
 	lru "github.com/hashicorp/golang-lru"
 )
 
@@ -522,6 +523,12 @@ func (hc *HeaderChain) GetHeaderByNumber(number uint64) *types.Header {
 		return nil
 	}
 	return hc.GetHeader(hash, number)
+}
+
+// GetHeadersFrom returns a contiguous segment of headers, in rlp-form, going
+// backwards from the given number.
+func (hc *HeaderChain) GetHeadersFrom(number, count uint64) []rlp.RawValue {
+	return rawdb.ReadHeadersRLP(hc.chainDb, number, count)
 }
 
 func (hc *HeaderChain) GetCanonicalHash(number uint64) common.Hash {
