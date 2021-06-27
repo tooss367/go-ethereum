@@ -292,8 +292,7 @@ func ReadHeadersRLP(db ethdb.Reader, number uint64, count uint64) []rlp.RawValue
 			if data, _ := db.Get(headerKey(i, hash)); len(data) > 0 {
 				rlpHeaders = append(rlpHeaders, data)
 				// Get the parent hash for next query
-				rlp.DecodeBytes(data, &hdr)
-				hash = hdr.ParentHash
+				hash = types.HeaderParentHashFromRLP(data)
 			} else {
 				break // Maybe got moved to ancients
 			}
