@@ -18,6 +18,7 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -62,6 +63,8 @@ Remove blockchain and state databases`,
 			dbPutCmd,
 			dbGetSlotsCmd,
 			dbDumpFreezerIndex,
+			dbBenchHeaders,
+			dbBenchHeaders2,
 		},
 	}
 	dbInspectCmd = cli.Command{
@@ -195,6 +198,43 @@ WARNING: This is a low-level operation which may cause database corruption!`,
 		},
 		Description: "This command displays information about the freezer index.",
 	}
+	dbBenchHeaders = cli.Command{
+		Action:    utils.MigrateFlags(benchHeaders),
+		Name:      "bench",
+		Usage:     "Benchmark reading from ancients",
+		ArgsUsage: "",
+		Flags: []cli.Flag{
+			utils.DataDirFlag,
+			utils.SyncModeFlag,
+			utils.MainnetFlag,
+			utils.RopstenFlag,
+			utils.RinkebyFlag,
+			utils.GoerliFlag,
+			utils.CalaverasFlag,
+		},
+		Category: "DATABASE COMMANDS",
+		Description: `
+Remove blockchain and state databases`,
+	}
+	dbBenchHeaders2 = cli.Command{
+		Action:    utils.MigrateFlags(benchHeaders2),
+		Name:      "bench2",
+		Usage:     "Benchmark reading from ancients",
+		ArgsUsage: "",
+		Flags: []cli.Flag{
+			utils.DataDirFlag,
+			utils.SyncModeFlag,
+			utils.MainnetFlag,
+			utils.RopstenFlag,
+			utils.RinkebyFlag,
+			utils.GoerliFlag,
+			utils.CalaverasFlag,
+		},
+		Category: "DATABASE COMMANDS",
+		Description: `
+Remove blockchain and state databases`,
+	}
+
 )
 
 func removeDB(ctx *cli.Context) error {
@@ -505,5 +545,79 @@ func freezerInspect(ctx *cli.Context) error {
 	} else {
 		f.DumpIndex(start, end)
 	}
+	return nil
+}
+
+func benchHeaders(ctx *cli.Context) error {
+	stack, _ := makeConfigNode(ctx)
+	defer stack.Close()
+	path := filepath.Join(stack.ResolvePath("chaindata"), "ancient")
+	log.Info("Opening freezer", "location", path, "name", "headers")
+	f, err := rawdb.NewFreezerTable(path, "headers", false)
+	if err != nil {
+		return err
+	}
+
+	var limit int64
+	if limit, err = strconv.ParseInt(ctx.Args().Get(0), 10, 64); err != nil {
+		log.Info("Could read size-param", "error", err)
+		return err
+	}
+	if limit < 192 {
+		return fmt.Errorf("Need moar")
+	}
+	var tot time.Duration
+	var count  = 0
+	var lastLog time.Time
+	for {
+		t0 := time.Now()
+		i := rand.Intn(int(limit - 192))
+		for j := i; j < i+192; j++{
+			f.Retrieve(uint64(j))
+		}
+		tot = tot +time.Since(t0)
+		count += 192
+		if time.Since(lastLog) > 5 * time.Second{
+			fmt.Printf("%v headers in %v: %.02f headers/ms\n", count, tot, float64(count * 1000000) / float64(tot))
+			lastLog = time.Now()
+		}
+	}
+	// Cute, no way of getting the itemcount...
+	return nil
+}
+
+func benchHeaders2(ctx *cli.Context) error {
+	stack, _ := makeConfigNode(ctx)
+	defer stack.Close()
+	path := filepath.Join(stack.ResolvePath("chaindata"), "ancient")
+	log.Info("Opening freezer", "location", path, "name", "headers")
+	f, err := rawdb.NewFreezerTable(path, "headers", false)
+	if err != nil {
+		return err
+	}
+
+	var limit int64
+	if limit, err = strconv.ParseInt(ctx.Args().Get(0), 10, 64); err != nil {
+		log.Info("Could read size-param", "error", err)
+		return err
+	}
+	if limit < 192 {
+		return fmt.Errorf("Need moar")
+	}
+	var tot time.Duration
+	var count  = 0
+	var lastLog time.Time
+	for {
+		t0 := time.Now()
+		i := rand.Intn(int(limit - 192))
+		f.RetrieveItems(uint64(i), 192, 700 * 192)
+		tot = tot +time.Since(t0)
+		count += 192
+		if time.Since(lastLog) > 5 * time.Second{
+			fmt.Printf("%v headers in %v: %.02f headers/ms\n", count, tot, float64(count * 1000000) / float64(tot))
+			lastLog = time.Now()
+		}
+	}
+	// Cute, no way of getting the itemcount...
 	return nil
 }
