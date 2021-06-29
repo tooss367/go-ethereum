@@ -234,7 +234,6 @@ Remove blockchain and state databases`,
 		Description: `
 Remove blockchain and state databases`,
 	}
-
 )
 
 func removeDB(ctx *cli.Context) error {
@@ -567,18 +566,18 @@ func benchHeaders(ctx *cli.Context) error {
 		return fmt.Errorf("Need moar")
 	}
 	var tot time.Duration
-	var count  = 0
+	var count = 0
 	var lastLog time.Time
 	for {
 		t0 := time.Now()
 		i := rand.Intn(int(limit - 192))
-		for j := i; j < i+192; j++{
+		for j := i; j < i+192; j++ {
 			f.Retrieve(uint64(j))
 		}
-		tot = tot +time.Since(t0)
+		tot = tot + time.Since(t0)
 		count += 192
-		if time.Since(lastLog) > 5 * time.Second{
-			fmt.Printf("%v headers in %v: %.02f headers/ms\n", count, tot, float64(count * 1000000) / float64(tot))
+		if time.Since(lastLog) > 5*time.Second {
+			fmt.Printf("%v headers in %v: %.02f headers/ms\n", count, tot, float64(count*1000000)/float64(tot))
 			lastLog = time.Now()
 		}
 	}
@@ -605,16 +604,16 @@ func benchHeaders2(ctx *cli.Context) error {
 		return fmt.Errorf("Need moar")
 	}
 	var tot time.Duration
-	var count  = 0
+	var count = 0
 	var lastLog time.Time
 	for {
 		t0 := time.Now()
 		i := rand.Intn(int(limit - 192))
-		f.RetrieveItems(uint64(i), 192, 700 * 192)
-		tot = tot +time.Since(t0)
+		f.RetrieveItems(uint64(i), 192, 700*192)
+		tot = tot + time.Since(t0)
 		count += 192
-		if time.Since(lastLog) > 5 * time.Second{
-			fmt.Printf("%v headers in %v: %.02f headers/ms\n", count, tot, float64(count * 1000000) / float64(tot))
+		if time.Since(lastLog) > 5*time.Second {
+			fmt.Printf("%v headers in %v: %.02f headers/ms\n", count, tot, float64(count*1000000)/float64(tot))
 			lastLog = time.Now()
 		}
 	}
