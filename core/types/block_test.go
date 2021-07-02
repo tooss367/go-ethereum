@@ -294,8 +294,8 @@ func TestRlpDecodeParentHash(t *testing.T) {
 	}
 	// And a maximum one
 	// | Difficulty  | dynamic| *big.Int       | 0x5ad3c2c71bbff854908 (current mainnet TD: 76 bits) |
-	// | Number      | dynamic| *big.Int       | 32 bits               |
-	// | Extra       | dynamic| []byte         | 64 bits               |
+	// | Number      | dynamic| *big.Int       | 64 bits               |
+	// | Extra       | dynamic| []byte         | 65+32 byte (clique)   |
 	// | BaseFee     | dynamic| *big.Int       | 64 bits               |
 	mainnetTd := new(big.Int)
 	mainnetTd.SetString("5ad3c2c71bbff854908", 16)
@@ -303,7 +303,7 @@ func TestRlpDecodeParentHash(t *testing.T) {
 		ParentHash: want,
 		Difficulty: mainnetTd,
 		Number:     new(big.Int).SetUint64(math.MaxUint64),
-		Extra:      make([]byte, 64),
+		Extra:      make([]byte, 65+32),
 		BaseFee:    new(big.Int).SetUint64(math.MaxUint64),
 	}); err != nil {
 		t.Fatal(err)

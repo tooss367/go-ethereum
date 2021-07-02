@@ -402,14 +402,14 @@ type Blocks []*Block
 //
 // | name        | size   | type           |  max
 // | ------------|--------| ---------------|-----------------------|
-// | Difficulty  | dynamic| *big.Int       | 0x5ad3c2c71bbff854908 (current mainnet TD: 76 bits) |
-// | Number      | dynamic| *big.Int       | 32 bits               |
-// | Extra       | dynamic| []byte         | 64 bits               |
-// | BaseFee     | dynamic| *big.Int       | 64 bits               |
+// | Difficulty  | dynamic| *big.Int       | 0x5ad3c2c71bbff854908 (current mainnet TD: 76 bits) => 10 byte |
+// | Number      | dynamic| *big.Int       | 32 bits = 4 bytes              |
+// | Extra       | dynamic| []byte         | 32 byte + 65 byte = 97 byte (clique) |
+// | BaseFee     | dynamic| *big.Int       | 64 bits = 8 byte            |
 //
-// Maximum size of dynamic fields: 236 bytes + dynamic overhead
+// Maximum size of dynamic fields: 119 bytes + dynamic overhead
 //
-// Total max size + 736 + dynamic overhead
+// Total max size + 619 + dynamic overhead
 //
 // Any RLP-encoded data structure between `256` bytes, and `65535` bytes will have three leading bytes for `size`.
 // Since we know that the header is at least `500` bytes, and practically will never go above `800`, we can be certain that
