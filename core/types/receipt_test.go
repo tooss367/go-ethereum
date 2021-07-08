@@ -19,8 +19,6 @@ package types
 import (
 	"bytes"
 	"io"
-
-	//"fmt"
 	"math"
 	"math/big"
 	"testing"
@@ -241,8 +239,15 @@ func (d *devnull) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func BenchmarkReceiptMarshall(b *testing.B) {
+func BenchmarkSmallReceipt(b *testing.B) {
+	benchmarkReceiptMarshall(b, &Receipt{
+		Status:            ReceiptStatusSuccessful,
+		CumulativeGasUsed: 0x888888888,
+		Logs:              make([]*Log, 5),
+	})
+}
 
+func BenchmarkLargeReceipt(b *testing.B) {
 	log := &Log{
 		Address: common.Address{},
 		Topics:  []common.Hash{common.Hash{}},
@@ -253,6 +258,10 @@ func BenchmarkReceiptMarshall(b *testing.B) {
 		CumulativeGasUsed: 0x888888888,
 		Logs:              []*Log{log, log, log, log, log},
 	}
+	benchmarkReceiptMarshall(b, r)
+}
+
+func benchmarkReceiptMarshall(b *testing.B, r *Receipt) {
 	b.Run("receipt", func(b *testing.B) {
 		var null = &devnull{}
 		for i := 0; i < b.N; i++ {
@@ -403,7 +412,7 @@ func encodeReceipt(w io.Writer, r *Receipt) {
 			topicsLen := rlp.ListSize(uint64(len(l.Topics) * 33))
 			a = rlp.AppendListHeader(a, 21+rlp.ByteSize(l.Data)+int(topicsLen))
 			// Address
-			a = append(a, 0x80+20, )
+			a = append(a, 0x80+20)
 			a = append(a, l.Address[:]...)
 			// Topics, a list of hashes
 			a = rlp.AppendListHeader(a, len(l.Topics)*33)
