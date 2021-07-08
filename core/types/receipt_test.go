@@ -18,6 +18,9 @@ package types
 
 import (
 	"bytes"
+	"io"
+
+	//"fmt"
 	"math"
 	"math/big"
 	"testing"
@@ -229,4 +232,188 @@ func clearComputedFieldsOnLog(t *testing.T, log *Log) {
 	log.TxHash = common.Hash{}
 	log.TxIndex = math.MaxUint32
 	log.Index = math.MaxUint32
+}
+
+type devnull struct{ len int }
+
+func (d *devnull) Write(p []byte) (n int, err error) {
+	d.len += len(p)
+	return len(p), nil
+}
+
+func BenchmarkReceiptMarshall(b *testing.B) {
+
+	log := &Log{
+		Address: common.Address{},
+		Topics:  []common.Hash{common.Hash{}},
+		Data:    []byte("data"),
+	}
+	r := &Receipt{
+		Status:            ReceiptStatusSuccessful,
+		CumulativeGasUsed: 0x888888888,
+		Logs:              []*Log{log, log, log, log, log},
+	}
+	b.Run("receipt", func(b *testing.B) {
+		var null = &devnull{}
+		for i := 0; i < b.N; i++ {
+			rlp.Encode(null, r)
+		}
+		b.SetBytes(int64(null.len / b.N))
+	})
+	b.Run("receipt-storage", func(b *testing.B) {
+		var null = &devnull{}
+		for i := 0; i < b.N; i++ {
+			rlp.Encode(null, (*ReceiptForStorage)(r))
+		}
+		b.SetBytes(int64(null.len / b.N))
+	})
+	b.Run("receipt-custom", func(b *testing.B) {
+		var null = &devnull{}
+		for i := 0; i < b.N; i++ {
+			encodeReceipt(null, r)
+		}
+		b.SetBytes(int64(null.len / b.N))
+	})
+
+}
+func TestReceiptMarshall(t *testing.T) {
+	r := &ReceiptForStorage{
+		Status:            ReceiptStatusSuccessful,
+		CumulativeGasUsed: 0x888888888,
+		Logs:              make([]*Log, 5),
+	}
+	r.Logs[0] = &Log{
+		Address: common.Address{},
+		Topics:  []common.Hash{common.Hash{}},
+		Data:    nil,
+	}
+	r.Logs[1] = &Log{
+		Address: common.Address{},
+		Topics:  []common.Hash{common.Hash{}},
+		Data:    []byte{0, 1, 2, 3, 4},
+	}
+	actualRlp, _ := rlp.EncodeToBytes(r)
+	t.Logf("act rlp: %x\n", actualRlp)
+	t.Logf("rlp size: %d\n", len(actualRlp))
+
+	{
+
+		alen := rlp.IntSize(r.CumulativeGasUsed)
+		blen := rlp.IntSize(r.Status)
+		var logLen uint64
+		for _, l := range r.Logs {
+			if l == nil {
+				logLen += rlp.ListSize(0)
+				continue
+			}
+			addressLen := 21 //rlp.IntSize(20) + 20 //l.Address
+			//fmt.Printf("addressLen est: %d\n", addressLen)
+			//x, _ := rlp.EncodeToBytes(l.Address)
+			//fmt.Printf("addressLen act: %d\n", len(x))
+
+			dataLen := rlp.ByteSize(l.Data) // l.Data
+			//fmt.Printf("dataLen est: %d\n", dataLen)
+			//x, _ = rlp.EncodeToBytes(l.Data)
+			//fmt.Printf("dataLen act: %d\n", len(x))
+			topicsLen := rlp.ListSize(uint64(len(l.Topics) * 33)) //(rlp.IntSize(32) + 32)))
+			//fmt.Printf("topicsLen est: %d\n", topicsLen)
+			//x, _ := rlp.EncodeToBytes(l.Topics)
+			//fmt.Printf("topicsLen act: %d\n", len(x))
+			logLen += rlp.ListSize(uint64(addressLen+dataLen) + topicsLen)
+			//fmt.Printf("logLen est: %d\n", logLen)
+			//x, _ = rlp.EncodeToBytes(l)
+			//fmt.Printf("logLen act: %d\n", len(x))
+
+		}
+		logTotalSize := rlp.ListSize(uint64(logLen))
+		contentLen := uint64(alen+blen) + logTotalSize
+		clen := rlp.ListSize(contentLen)
+
+		t.Logf("est size: %d tot %x contentLen %x\n", clen, clen, contentLen)
+		a := make([]byte, 0, clen)
+		a = rlp.AppendListHeader(a, int(contentLen)) // outer size
+
+		a = rlp.AppendUint64(a, r.Status)
+		a = rlp.AppendUint64(a, r.CumulativeGasUsed)
+
+		{ // Now we enter the logs.
+			// Size of the logs struct
+			a = rlp.AppendListHeader(a, int(logLen)) // outer size
+			for _, l := range r.Logs {
+				if l == nil {
+					a = append(a, 0xc0)
+					continue
+				}
+				addressLen := 21
+				dataLen := rlp.ByteSize(l.Data)
+				topicsLen := rlp.ListSize(uint64(len(l.Topics) * 33))
+				//total := rlp.ListSize(uint64(addressLen+dataLen) + topicsLen)
+				a = rlp.AppendListHeader(a, addressLen+dataLen+int(topicsLen))
+				// Address
+				a = append(a, 0x80+20)
+				a = append(a, l.Address[:]...)
+				// Topics, a list of hashes
+				a = rlp.AppendListHeader(a, len(l.Topics)*33)
+				for _, topic := range l.Topics {
+					a = append(a, 0x80+32)
+					a = append(a, topic.Bytes()...)
+				}
+				// Data
+				a = rlp.AppendBytes(a, l.Data)
+			}
+
+		}
+
+		// next is a list  header
+		//rlp.AppendUint64(a, )
+		//rlp.AppendUint64(a,20) // size of address
+		t.Logf("act rlp: %x\n", actualRlp)
+		t.Logf("est rlp: %x\n", a)
+		// test3
+		tt := bytes.NewBuffer(nil)
+		encodeReceipt(tt, (*Receipt)(r))
+		t.Logf("est rlp: %x\n", tt.Bytes())
+	}
+
+}
+
+func encodeReceipt(w io.Writer, r *Receipt) {
+	var logLen uint64
+	for _, l := range r.Logs {
+		if l == nil {
+			logLen += 1
+			continue
+		}
+		topicsLen := rlp.ListSize(uint64(len(l.Topics) * 33)) //(rlp.IntSize(32) + 32)))
+		logLen += rlp.ListSize(uint64(21+rlp.ByteSize(l.Data)) + topicsLen)
+	}
+	contentLen := uint64(rlp.IntSize(r.CumulativeGasUsed)+rlp.IntSize(r.Status)) +
+		rlp.ListSize(uint64(logLen))
+	a := make([]byte, 0, rlp.ListSize(contentLen))
+	a = rlp.AppendListHeader(a, int(contentLen))
+	a = rlp.AppendUint64(a, r.Status)
+	a = rlp.AppendUint64(a, r.CumulativeGasUsed)
+	{ // Now we enter the logs.
+		a = rlp.AppendListHeader(a, int(logLen)) // outer size of log struct
+		for _, l := range r.Logs {
+			if l == nil {
+				a = append(a, 0xc0)
+				continue
+			}
+			topicsLen := rlp.ListSize(uint64(len(l.Topics) * 33))
+			a = rlp.AppendListHeader(a, 21+rlp.ByteSize(l.Data)+int(topicsLen))
+			// Address
+			a = append(a, 0x80+20, )
+			a = append(a, l.Address[:]...)
+			// Topics, a list of hashes
+			a = rlp.AppendListHeader(a, len(l.Topics)*33)
+			for _, topic := range l.Topics {
+				a = append(a, 0x80+32)
+				a = append(a, topic.Bytes()...)
+			}
+			// Data
+			a = rlp.AppendBytes(a, l.Data)
+		}
+	}
+	w.Write(a)
 }

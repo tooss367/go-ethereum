@@ -214,6 +214,7 @@ type ReceiptForStorage Receipt
 
 // EncodeRLP implements rlp.Encoder.
 func (r *ReceiptForStorage) EncodeRLP(w io.Writer) error {
+	//len := rlp.ListSize()
 	enc := &storedReceiptRLP{
 		PostStateOrStatus: (*Receipt)(r).statusEncoding(),
 		CumulativeGasUsed: r.CumulativeGasUsed,

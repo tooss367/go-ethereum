@@ -42,6 +42,10 @@ func IntSize(x uint64) int {
 	return 1 + intsize(x)
 }
 
+func ByteSize(data []byte) int {
+	return IntSize(uint64(len(data))) + len(data)
+}
+
 // Split returns the content of first RLP value and any
 // bytes after the value as subslices of b.
 func Split(b []byte) (k Kind, content, rest []byte, err error) {
@@ -258,4 +262,89 @@ func AppendUint64(b []byte, i uint64) []byte {
 			byte(i),
 		)
 	}
+}
+
+func appendInt(b []byte, i uint64) []byte {
+	switch {
+	case i < (1 << 8):
+		return append(b, byte(i))
+	case i < (1 << 16):
+		return append(b,
+			byte(i>>8),
+			byte(i),
+		)
+	case i < (1 << 24):
+		return append(b,
+			byte(i>>16),
+			byte(i>>8),
+			byte(i),
+		)
+	case i < (1 << 32):
+		return append(b,
+			byte(i>>24),
+			byte(i>>16),
+			byte(i>>8),
+			byte(i),
+		)
+	case i < (1 << 40):
+		return append(b,
+			byte(i>>32),
+			byte(i>>24),
+			byte(i>>16),
+			byte(i>>8),
+			byte(i),
+		)
+
+	case i < (1 << 48):
+		return append(b,
+			byte(i>>40),
+			byte(i>>32),
+			byte(i>>24),
+			byte(i>>16),
+			byte(i>>8),
+			byte(i),
+		)
+	case i < (1 << 56):
+		return append(b,
+			byte(i>>48),
+			byte(i>>40),
+			byte(i>>32),
+			byte(i>>24),
+			byte(i>>16),
+			byte(i>>8),
+			byte(i),
+		)
+
+	default:
+		return append(b,
+			byte(i>>56),
+			byte(i>>48),
+			byte(i>>40),
+			byte(i>>32),
+			byte(i>>24),
+			byte(i>>16),
+			byte(i>>8),
+			byte(i),
+		)
+	}
+}
+
+func AppendListHeader(buf []byte, contentSize int) []byte {
+	if contentSize < 56 {
+		return append(buf, 0xC0+byte(contentSize))
+	}
+	sizesize := intsize(uint64(contentSize))
+	buf = append(buf, 0xF7+byte(sizesize))
+	buf = appendInt(buf, uint64(contentSize))
+	return buf
+}
+
+func AppendBytes(b []byte, source []byte) []byte {
+	contentSize := len(source)
+	if contentSize == 0 {
+		return append(b, 0x80)
+	}
+	b = appendInt(b, 0x80+uint64(contentSize))
+	b = append(b, source...)
+	return b
 }
