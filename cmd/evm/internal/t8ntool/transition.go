@@ -262,7 +262,8 @@ func Main(ctx *cli.Context) error {
 		case env.Timestamp == 0:
 			return NewError(ErrorVMConfig, errors.New("currentDifficulty cannot be calculated if time is set to 0"))
 		}
-		prestate.Env.Difficulty = calcDifficulty(chainConfig, env.Number, env.Timestamp, env.ParentTimestamp, env.ParentDifficulty)
+		prestate.Env.Difficulty = calcDifficulty(chainConfig, env.Number, env.Timestamp,
+			env.ParentTimestamp, env.ParentDifficulty, env.ParentUncleHash)
 	}
 	// Run the test and aggregate the result
 	s, result, err := prestate.Apply(vmConfig, chainConfig, txs, ctx.Int64(RewardFlag.Name), getTracer)

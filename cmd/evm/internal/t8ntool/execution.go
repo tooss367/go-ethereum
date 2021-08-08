@@ -74,6 +74,7 @@ type stEnv struct {
 	BlockHashes      map[math.HexOrDecimal64]common.Hash `json:"blockHashes,omitempty"`
 	Ommers           []ommer                             `json:"ommers,omitempty"`
 	BaseFee          *big.Int                            `json:"currentBaseFee,omitempty"`
+	ParentUncleHash  common.Hash                         `json:"parentUncleHash"`
 }
 
 type stEnvMarshaling struct {
@@ -286,10 +287,15 @@ func rlpHash(x interface{}) (h common.Hash) {
 // the caller does not provide an explicit difficulty, but instead provides only
 // parent timestamp + difficulty.
 // Note: this method only works for ethash engine.
-func calcDifficulty(config *params.ChainConfig, number, currentTime, parentTime uint64, parentDifficulty *big.Int) *big.Int {
+func calcDifficulty(config *params.ChainConfig, number, currentTime, parentTime uint64,
+	parentDifficulty *big.Int, parentUncleHash common.Hash) *big.Int {
+	uncleHash := parentUncleHash
+	if uncleHash == (common.Hash{}) {
+		uncleHash = types.EmptyUncleHash
+	}
 	parent := &types.Header{
 		ParentHash: common.Hash{},
-		UncleHash:  types.EmptyUncleHash,
+		UncleHash:  uncleHash,
 		Difficulty: parentDifficulty,
 		Number:     new(big.Int).SetUint64(number - 1),
 		Time:       parentTime,

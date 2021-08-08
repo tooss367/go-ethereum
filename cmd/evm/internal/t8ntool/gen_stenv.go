@@ -26,6 +26,7 @@ func (s stEnv) MarshalJSON() ([]byte, error) {
 		BlockHashes      map[math.HexOrDecimal64]common.Hash `json:"blockHashes,omitempty"`
 		Ommers           []ommer                             `json:"ommers,omitempty"`
 		BaseFee          *math.HexOrDecimal256               `json:"currentBaseFee,omitempty"`
+		ParentUncleHash  common.Hash                         `json:"parentUncleHash"`
 	}
 	var enc stEnv
 	enc.Coinbase = common.UnprefixedAddress(s.Coinbase)
@@ -38,6 +39,7 @@ func (s stEnv) MarshalJSON() ([]byte, error) {
 	enc.BlockHashes = s.BlockHashes
 	enc.Ommers = s.Ommers
 	enc.BaseFee = (*math.HexOrDecimal256)(s.BaseFee)
+	enc.ParentUncleHash = s.ParentUncleHash
 	return json.Marshal(&enc)
 }
 
@@ -54,6 +56,7 @@ func (s *stEnv) UnmarshalJSON(input []byte) error {
 		BlockHashes      map[math.HexOrDecimal64]common.Hash `json:"blockHashes,omitempty"`
 		Ommers           []ommer                             `json:"ommers,omitempty"`
 		BaseFee          *math.HexOrDecimal256               `json:"currentBaseFee,omitempty"`
+		ParentUncleHash  *common.Hash                        `json:"parentUncleHash"`
 	}
 	var dec stEnv
 	if err := json.Unmarshal(input, &dec); err != nil {
@@ -92,6 +95,9 @@ func (s *stEnv) UnmarshalJSON(input []byte) error {
 	}
 	if dec.BaseFee != nil {
 		s.BaseFee = (*big.Int)(dec.BaseFee)
+	}
+	if dec.ParentUncleHash != nil {
+		s.ParentUncleHash = *dec.ParentUncleHash
 	}
 	return nil
 }
